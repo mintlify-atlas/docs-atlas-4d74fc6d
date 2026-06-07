@@ -1,7 +1,7 @@
 ---
-title: "Schedule Events and Wait for Server States"
+title: "HungerLib Scheduler: Snapping, Countdown, and Server State"
 sidebarTitle: "Scheduler"
-description: "HungerLib's scheduling utilities snap events to clock boundaries, run countdown callbacks at precise intervals, and block until servers reach a target state."
+description: "HungerLib scheduling utilities snap restart times to clock boundaries, fire countdown callbacks, and block until servers come online or go offline."
 ---
 
 HungerLib's scheduling utilities solve the most common timing needs in Pterodactyl automation scripts: finding the next clean clock boundary for a restart, firing warning messages at precise countdown intervals, and blocking script execution until a server has fully started or stopped. Rather than writing ad-hoc `time.sleep` loops, you can express intent directly — "restart at the next `:00` or `:30`, at least 15 minutes from now" — and let HungerLib handle the arithmetic.
@@ -14,7 +14,7 @@ HungerLib's scheduling utilities solve the most common timing needs in Pterodact
 snapSchedule(minimumMinutes: int = 30, snapMinutes: tuple[int, int] = (0, 30)) -> dict
 ```
 
-`snapSchedule` looks at the current time, adds the required lead time, then finds the earliest minute value from `snapMinutes` that the result still falls before. If no snap minute within the current hour qualifies, it rolls over to the top of the next hour. This guarantees scheduled events always land on a clean, predictable boundary rather than an arbitrary offset.
+`snapSchedule` looks at the current time, adds the required lead time (`minimumMinutes`), then finds the first minute value from `snapMinutes` that is strictly greater than `minimum.minute`. If no snap minute in the current hour qualifies, it rolls over to minute `0` of the next hour. This guarantees scheduled events always land on a clean, predictable boundary rather than an arbitrary offset.
 
 <ParamField path="minimumMinutes" type="int" default="30">
   The minimum number of minutes of lead time required before the scheduled event. The function will not schedule anything sooner than `now + minimumMinutes`.

@@ -60,7 +60,7 @@ panel.databases.create(server_id, name, remote="%", host=None)
 </ParamField>
 
 <ParamField path="name" type="str" required>
-  The name to give the new database. Pterodactyl may prefix it with the server identifier automatically.
+  The name to give the new database. Sent as the `"database"` key in the JSON request body. Pterodactyl may prefix it with the server identifier automatically.
 </ParamField>
 
 <ParamField path="remote" type="str" default="%">
@@ -68,7 +68,7 @@ panel.databases.create(server_id, name, remote="%", host=None)
 </ParamField>
 
 <ParamField path="host" type="str">
-  The database host ID to use when multiple database hosts are configured on the panel. If `None` (the default), Pterodactyl uses the panel's default database host.
+  The database host ID to use when multiple database hosts are configured on the panel. Only included in the request payload when truthy — if `None` or falsy (the default), the `host` key is omitted entirely and Pterodactyl uses the panel's default database host.
 </ParamField>
 
 **Returns:** `requests.Response` — JSON body describes the newly created database, including its auto-generated `username`, `password`, and connection details.

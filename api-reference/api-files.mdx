@@ -1,7 +1,7 @@
 ---
 title: "FileManagerAPI — Pterodactyl File Operations Reference"
 sidebarTitle: "FileManagerAPI"
-description: "Reference for FileManagerAPI (panel.files): list, download, upload, delete, rename, copy, move, create folders, compress, and decompress server files via the Pterodactyl Client API."
+description: "Reference for FileManagerAPI (panel.files): list, download, upload, delete, rename, copy, move, create folders, compress, and decompress server files."
 ---
 
 `FileManagerAPI` is the low-level wrapper around Pterodactyl's file management endpoints. It is attached to every `Panel` instance as `panel.files` and is also called internally by the convenience methods on `GenericServer`. Every method accepts a `server_id` as its first argument and returns a raw `requests.Response` object — parse `response.json()` for the payload or check `response.status_code` for success.
@@ -24,7 +24,7 @@ print(response.json())
 
 Returns the contents of a directory on the server's filesystem.
 
-**Endpoint:** `GET /api/client/servers/{server_id}/files/list`
+**Endpoint:** `GET /api/client/servers/{server_id}/files/list?directory={directory}`
 
 ```python
 panel.files.list(server_id, directory="/")
@@ -52,7 +52,7 @@ for entry in response.json()["data"]:
 
 Generates a short-lived signed download URL for a single file.
 
-**Endpoint:** `GET /api/client/servers/{server_id}/files/download`
+**Endpoint:** `GET /api/client/servers/{server_id}/files/download?file={file_path}`
 
 ```python
 panel.files.download(server_id, file_path)

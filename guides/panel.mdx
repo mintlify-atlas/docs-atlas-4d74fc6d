@@ -1,7 +1,7 @@
 ---
-title: "Connect to a Pterodactyl Panel with Panel"
+title: "Connect to a Pterodactyl Panel Using HungerLib's Panel Class"
 sidebarTitle: "Panel"
-description: "The Panel class is HungerLib's authenticated HTTP client for the Pterodactyl Client API — covering health checks, files, schedules, databases, backups, and startup variables."
+description: "Panel authenticates HungerLib against the Pterodactyl Client API and exposes sub-modules for files, schedules, databases, backups, and startup variables."
 ---
 
 `Panel` is the central connection object in HungerLib. It wraps the Pterodactyl Client API with an authenticated HTTP client and exposes every sub-module — schedules, files, backups, databases, startup variables, and commands — as attributes you can hand off to a server object. Every `GenericServer` and `MinecraftServer` instance holds a `Panel` reference and uses it to make all panel requests on your behalf.
@@ -76,22 +76,22 @@ A special-case method for multipart file uploads. Unlike the standard methods it
 `Panel` instantiates six API sub-modules during `__init__` and exposes them as attributes. You do not normally call these directly — `GenericServer` and `MinecraftServer` proxy every operation through them.
 
 <CardGroup cols={2}>
-  <Card title=".schedules" icon="calendar">
+  <Card title=".schedules" icon="calendar" href="/api-reference/api-schedules">
     `ScheduleAPI` — list, create, update, delete, and trigger scheduled tasks.
   </Card>
-  <Card title=".files" icon="folder">
+  <Card title=".files" icon="folder" href="/api-reference/api-files">
     `FileManagerAPI` — list, upload, download, delete, rename, copy, move, compress, and decompress files.
   </Card>
-  <Card title=".backups" icon="database">
+  <Card title=".backups" icon="database" href="/api-reference/api-backups">
     `BackupsAPI` — list, create, delete, and download server backups.
   </Card>
-  <Card title=".databases" icon="server">
+  <Card title=".databases" icon="server" href="/api-reference/api-databases">
     `DatabasesAPI` — list, create, rotate passwords, and delete databases.
   </Card>
-  <Card title=".startup" icon="play">
+  <Card title=".startup" icon="play" href="/api-reference/api-startup">
     `StartupAPI` — read and update startup environment variables.
   </Card>
-  <Card title=".commands" icon="terminal">
+  <Card title=".commands" icon="terminal" href="/api-reference/api-commands">
     `CommandAPI` — send console commands to a server.
   </Card>
 </CardGroup>

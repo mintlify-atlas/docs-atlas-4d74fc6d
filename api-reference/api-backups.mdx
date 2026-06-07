@@ -1,7 +1,7 @@
 ---
 title: "BackupsAPI — Pterodactyl Backup Management Reference"
 sidebarTitle: "BackupsAPI"
-description: "Reference for BackupsAPI (panel.backups): list, create, delete, and download server backups via the Pterodactyl Client API."
+description: "Reference for BackupsAPI (panel.backups): list, create, delete, and download server backups via the Pterodactyl Client API. Returns requests.Response."
 ---
 
 `BackupsAPI` provides a direct interface to Pterodactyl's backup endpoints. It is mounted on every `Panel` instance as `panel.backups` and is also called internally by backup-related methods on `GenericServer`. All methods accept a `server_id` as their first argument and return a raw `requests.Response`.

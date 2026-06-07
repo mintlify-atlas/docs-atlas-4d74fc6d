@@ -1,7 +1,7 @@
 ---
-title: "Validate Config Schemas with Validator"
+title: "Validator: Validate HungerLib Config Dataclasses on Startup"
 sidebarTitle: "Validator"
-description: "HungerLib's Validator checks config dataclasses for missing required fields, type mismatches, fallback usage, and recommended keys with structured, human-readable error reports."
+description: "Check config dataclasses for missing required fields, type mismatches, and fallback usage before your script runs, with typed exceptions per severity."
 ---
 
 Automation scripts fail in frustrating ways when configuration is wrong — a missing API key causes a cryptic `AttributeError` deep inside a restart loop, or a mistyped YAML value is silently coerced and produces subtly incorrect behavior. HungerLib's `Validator` class solves this by running structured checks on your config dataclasses before your script does any real work. It distinguishes between missing required fields (which should halt execution), type mismatches (which indicate likely bugs), fields still using their fallback value (informational), and missing recommended keys (advisory) — and it raises different exception types for each category so your script can respond appropriately.

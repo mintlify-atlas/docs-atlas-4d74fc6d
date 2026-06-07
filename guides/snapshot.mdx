@@ -1,7 +1,7 @@
 ---
-title: "Capture Server Metrics with Snapshot"
+title: "HungerLib Snapshot: Instant and Smoothed Resource Sampling"
 sidebarTitle: "Snapshot"
-description: "Snapshot captures an instant or time-averaged sample of server resource metrics including RAM, CPU, disk, network, TPS, and player count from any GenericServer or MinecraftServer."
+description: "Capture an instant or time-averaged sample of server resource metrics — RAM, CPU, network, TPS, and player count — with optional outlier removal."
 ---
 
 `Snapshot` gives you a structured, typed snapshot of a Pterodactyl server's live resource usage at a single point in time — or as a smoothed average over a configurable sampling window. Rather than making multiple individual API calls and wiring the results together yourself, you instantiate `Snapshot` and immediately get `snap.ram`, `snap.cpu`, `snap.tps`, and other attributes populated and ready to use. This makes it straightforward to log resource metrics before and after a restart, gate actions on resource thresholds, or build monitoring loops that report averaged utilization under variable load.
@@ -42,7 +42,7 @@ Snapshot(
 </ParamField>
 
 <ParamField path="gb" type="bool" default="false">
-  When `True`, RAM, disk, and network values are returned in gigabytes instead of megabytes. Pass `gb=True` for servers with large memory allocations where MB figures are unwieldy.
+  When `True`, RAM and network values are returned in gigabytes instead of megabytes. Pass `gb=True` for servers with large memory allocations where MB figures are unwieldy.
 </ParamField>
 
 ---

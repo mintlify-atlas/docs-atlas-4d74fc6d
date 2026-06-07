@@ -80,11 +80,11 @@ After construction, the following attributes are available on the snapshot objec
 </ResponseField>
 
 <ResponseField name="tps" type="float | None">
-  Current TPS (ticks per second) from HungerBridge. **Only present on `MinecraftServer` snapshots.** `None` for `GenericServer` instances (which lack `getTPS()`), or if the bridge is unreachable. Mean for smoothed snapshots.
+  Current TPS (ticks per second) from HungerBridge. Always set on the snapshot object. `None` for `GenericServer` instances (which lack `getTPS()`), or if the bridge is unreachable. Mean for smoothed snapshots.
 </ResponseField>
 
 <ResponseField name="players" type="int | float | None">
-  Number of online players from HungerBridge. **Only present on `MinecraftServer` snapshots.** `None` for `GenericServer` instances. For smoothed snapshots, this is the mean of sampled counts (may be a float).
+  Number of online players from HungerBridge. Always set on the snapshot object. `None` for `GenericServer` instances (which lack `getPlayers()`). For smoothed snapshots, this is the mean of sampled counts (may be a float).
 </ResponseField>
 
 <ResponseField name="uptime" type="int | None">
@@ -132,7 +132,7 @@ TPS: 19.982
 Online players: 7
 ```
 
-The `TPS` and `Online players` lines are only included when those attributes are not `None` (i.e. for `MinecraftServer` snapshots).
+The `TPS` and `Online players` lines are only included when those attributes are not `None`.
 
 ```python
 snap = Snapshot(mc_server, duration=3.0)

@@ -1,7 +1,7 @@
 ---
-title: "Interact with HungerBridge Using BridgeClient"
+title: "Control Minecraft Servers with HungerLib's BridgeClient"
 sidebarTitle: "HungerBridge"
-description: "BridgeClient is HungerLib's Python client for the HungerBridge v2 REST API, enabling command execution, logging, TPS monitoring, and player queries on Minecraft servers."
+description: "BridgeClient is HungerLib's Python client for the HungerBridge v2 API — run console commands, log messages, monitor TPS, and query online players."
 ---
 
 HungerBridge is a lightweight HTTP agent that runs inside a Minecraft server process and exposes a REST API for automation. `BridgeClient` is HungerLib's Python client for that API — it handles authentication, request routing, and response parsing so you can query player counts, read TPS metrics, run console commands, and write log entries with simple method calls. If you are using `MinecraftServer`, a `BridgeClient` is constructed and held internally; you only need to use `BridgeClient` directly when building lower-level tooling or working without the panel layer.

@@ -37,6 +37,8 @@ GenericServer(name: str, panel: Panel, server_id: str)
   The Pterodactyl server identifier (short UUID), found in the panel URL or API response.
 </ParamField>
 
+After construction, `self._cached_resources` is `None`. It is populated on the first call to `resources()` or `refresh()`.
+
 ---
 
 ## Resources
@@ -81,7 +83,7 @@ server.getRAM(rounding: int = 2, gb: bool = False) -> float | None
   When `True`, returns the value in gigabytes. When `False` (default), returns megabytes.
 </ParamField>
 
-**Returns** `float` — current RAM usage in MB (or GB if `gb=True`), or `None` if the metric is unavailable.
+**Returns** `float | None` — current RAM usage in MB (or GB if `gb=True`), or `None` if the metric is unavailable.
 
 ---
 
@@ -95,7 +97,7 @@ server.getCPU(rounding: int = 2) -> float | None
   Number of decimal places to round the result to.
 </ParamField>
 
-**Returns** `float` — current CPU usage as an absolute percentage (e.g. `45.67`), or `None` if unavailable.
+**Returns** `float | None` — current CPU usage as an absolute percentage (e.g. `45.67`), or `None` if unavailable.
 
 ---
 
@@ -113,7 +115,7 @@ server.getDisk(rounding: int = 2, gb: bool = False) -> float | None
   When `True`, returns the value in gigabytes. When `False`, returns megabytes.
 </ParamField>
 
-**Returns** `float` — current disk usage in MB or GB, or `None` if unavailable.
+**Returns** `float | None` — current disk usage in MB or GB, or `None` if unavailable.
 
 ---
 
@@ -131,7 +133,7 @@ server.getNetworkIn(rounding: int = 2, gb: bool = False) -> float | None
   When `True`, returns the value in gigabytes. When `False`, returns megabytes.
 </ParamField>
 
-**Returns** `float` — cumulative inbound network usage in MB or GB, or `None` if unavailable.
+**Returns** `float | None` — cumulative inbound network usage in MB or GB, or `None` if unavailable.
 
 ---
 
@@ -149,7 +151,7 @@ server.getNetworkOut(rounding: int = 2, gb: bool = False) -> float | None
   When `True`, returns the value in gigabytes. When `False`, returns megabytes.
 </ParamField>
 
-**Returns** `float` — cumulative outbound network usage in MB or GB, or `None` if unavailable.
+**Returns** `float | None` — cumulative outbound network usage in MB or GB, or `None` if unavailable.
 
 ---
 
@@ -211,7 +213,7 @@ server.isOffline() -> bool
 ### `powerAction()`
 
 ```python
-server.powerAction(action: str) -> tuple[int, str]
+server.powerAction(action: str) -> tuple
 ```
 
 Sends a power signal to the server via `POST /api/client/servers/{id}/power`.
@@ -220,7 +222,7 @@ Sends a power signal to the server via `POST /api/client/servers/{id}/power`.
   The power signal to send. Must be one of `"start"`, `"stop"`, `"restart"`, or `"kill"`.
 </ParamField>
 
-**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+**Returns** `tuple` — `(status_code, response_body)`.
 
 **Raises** `ValueError` if `action` is not one of the four valid values.
 
@@ -229,48 +231,48 @@ Sends a power signal to the server via `POST /api/client/servers/{id}/power`.
 ### `start()`
 
 ```python
-server.start() -> tuple[int, str]
+server.start() -> tuple
 ```
 
 Shortcut for `powerAction("start")`. Sends the start signal to a stopped server.
 
-**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+**Returns** `tuple` — `(status_code, response_body)`.
 
 ---
 
 ### `stop()`
 
 ```python
-server.stop() -> tuple[int, str]
+server.stop() -> tuple
 ```
 
 Shortcut for `powerAction("stop")`. Sends a graceful stop signal.
 
-**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+**Returns** `tuple` — `(status_code, response_body)`.
 
 ---
 
 ### `restart()`
 
 ```python
-server.restart() -> tuple[int, str]
+server.restart() -> tuple
 ```
 
 Shortcut for `powerAction("restart")`. Sends a restart signal.
 
-**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+**Returns** `tuple` — `(status_code, response_body)`.
 
 ---
 
 ### `kill()`
 
 ```python
-server.kill() -> tuple[int, str]
+server.kill() -> tuple
 ```
 
 Shortcut for `powerAction("kill")`. Immediately terminates the server process without a graceful shutdown.
 
-**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+**Returns** `tuple` — `(status_code, response_body)`.
 
 ---
 
@@ -607,10 +609,10 @@ server.listSchedules() -> requests.Response
 ### `createSchedule()`
 
 ```python
-server.createSchedule(payload: dict) -> requests.Response
+server.createSchedule(payload: str) -> requests.Response
 ```
 
-<ParamField path="payload" type="dict" required>
+<ParamField path="payload" type="str" required>
   Schedule creation payload as expected by the Pterodactyl API, including cron fields (`minute`, `hour`, `day_of_month`, `month`, `day_of_week`) and optionally `name`, `is_active`, and `only_when_online`.
 </ParamField>
 
@@ -621,15 +623,15 @@ server.createSchedule(payload: dict) -> requests.Response
 ### `updateSchedule()`
 
 ```python
-server.updateSchedule(schedule_id: str, payload: dict) -> requests.Response
+server.updateSchedule(schedule_id: str, payload: str) -> requests.Response
 ```
 
 <ParamField path="schedule_id" type="str" required>
   The schedule identifier to update.
 </ParamField>
 
-<ParamField path="payload" type="dict" required>
-  Dict of fields to update on the schedule.
+<ParamField path="payload" type="str" required>
+  Payload of fields to update on the schedule.
 </ParamField>
 
 **Returns** `requests.Response`.

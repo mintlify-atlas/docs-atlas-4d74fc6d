@@ -1,7 +1,7 @@
 ---
-title: "Manage Pterodactyl Servers with GenericServer and MinecraftServer"
+title: "Manage Pterodactyl Servers with HungerLib's Server Classes"
 sidebarTitle: "Servers"
-description: "GenericServer and MinecraftServer provide power control, resource monitoring, file management, backups, databases, and Minecraft-specific RCON features over the Pterodactyl Client API."
+description: "GenericServer wraps Pterodactyl server management; MinecraftServer extends it with TPS monitoring, player queries, and console commands via HungerBridge."
 ---
 
 HungerLib provides two server classes that sit on top of a `Panel` connection. `GenericServer` covers every operation available through the Pterodactyl Client API — power actions, resource metrics, file management, backups, databases, startup variables, and schedules. `MinecraftServer` extends `GenericServer` and adds Minecraft-specific features (player queries, TPS monitoring, and console commands) by communicating with a running **HungerBridge** agent over a separate HTTP port.

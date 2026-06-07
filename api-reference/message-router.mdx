@@ -4,7 +4,7 @@ sidebarTitle: "MessageRouter"
 description: "Complete reference for MessageRouter: constructor parameters, routing methods, log levels, and color map configuration for terminal, broadcast, bridge, and file destinations."
 ---
 
-`MessageRouter` is a structured logging and message-routing utility that fans a single log call out to multiple destinations simultaneously: the local terminal (`origin`), every server's HungerBridge console (`destination`), every server's in-game chat (`broadcast`), and a rotating date-stamped log file (`filelog`). Color and format transformations are applied per-destination using `mapres` map lists, so ANSI escape codes appear in the terminal, Minecraft color codes appear in chat, and plain stripped text is written to disk.
+`MessageRouter` is a structured logging and message-routing utility that routes messages to up to four destinations: the local terminal (`origin`), every server's HungerBridge console (`destination`), every server's in-game chat (`broadcast`), and a rotating date-stamped log file (`filelog`). The shorthand methods `info()`, `warn()`, and `error()` call `origin` and `filelog` only; call `destination()` and `broadcast()` directly when you need to reach those routes. Color and format transformations are applied per-destination using `mapres` map lists, so ANSI escape codes appear in the terminal, Minecraft color codes appear in chat, and plain stripped text is written to disk.
 
 Log files are created automatically in the `log_path` directory and named `{name}_YYYY-MM-DD.log`.
 
@@ -311,7 +311,7 @@ Writes a message to the rotating date-stamped log file using Python's `logging` 
 Log files use the Python `logging` formatter pattern:
 
 ```
-[HH:MM:SS] [LEVEL] message text
+[%(asctime)s] [%(levelname)s] %(message)s
 ```
 
 Example file: `./logs/bot_2024-07-15.log`

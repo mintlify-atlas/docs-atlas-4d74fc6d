@@ -1,7 +1,7 @@
 ---
-title: "Multi-Destination Logging with MessageRouter"
+title: "HungerLib MessageRouter: Multi-Destination Logging Routes"
 sidebarTitle: "MessageRouter"
-description: "MessageRouter routes formatted messages to the terminal, in-game Minecraft broadcasts, HungerBridge server logs, and rotating daily log files from a single call."
+description: "Route formatted messages to the terminal, daily log files, HungerBridge server logs, and in-game Minecraft broadcasts from a single MessageRouter."
 ---
 
 Automation scripts that manage multiple game servers need to communicate across several channels simultaneously: a human operator watching a terminal, players in-game who need countdown warnings, console logs persisted for later auditing, and per-server bridge logs that record operational events. `MessageRouter` handles all of this from a single object. One call to `router.info(...)` prints a timestamped, color-coded line to the terminal and appends a clean plain-text entry to a rotating daily log file. One call to `router.broadcast(...)` sends a Minecraft-formatted message to every server in your list. You stop managing formatters, file handles, and color-code pipelines individually and express intent instead.

@@ -1,0 +1,195 @@
+---
+title: "Capture Server Metrics with Snapshot"
+sidebarTitle: "Snapshot"
+description: "Snapshot captures an instant or time-averaged sample of server resource metrics including RAM, CPU, disk, network, TPS, and player count from any GenericServer or MinecraftServer."
+---
+
+`Snapshot` gives you a structured, typed snapshot of a Pterodactyl server's live resource usage at a single point in time — or as a smoothed average over a configurable sampling window. Rather than making multiple individual API calls and wiring the results together yourself, you instantiate `Snapshot` and immediately get `snap.ram`, `snap.cpu`, `snap.tps`, and other attributes populated and ready to use. This makes it straightforward to log resource metrics before and after a restart, gate actions on resource thresholds, or build monitoring loops that report averaged utilization under variable load.
+
+---
+
+## Constructor
+
+```python
+Snapshot(
+    Server,
+    rounding: int = 2,
+    duration: float = 0.0,
+    interval: float = 0.5,
+    drop_outliers: int = 0,
+    gb: bool = False,
+)
+```
+
+<ParamField path="Server" type="GenericServer | MinecraftServer" required>
+  Any HungerLib server object. `GenericServer` instances populate `ram`, `cpu`, `network_in`, `network_out`, and `uptime`. `MinecraftServer` instances additionally populate `tps` and `players` if they expose `getTPS()` and `getPlayers()` methods.
+</ParamField>
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round float metrics to. Applied to `ram`, `cpu`, `network_in`, and `network_out`. Has no effect on `tps`, `players`, or `uptime`.
+</ParamField>
+
+<ParamField path="duration" type="float" default="0.0">
+  Total seconds over which to collect samples for smoothing. When `duration=0.0` (the default), a single instant snapshot is taken. When `duration > 0`, the constructor blocks for the specified duration, collecting one sample every `interval` seconds, then sets each attribute to the mean of all collected samples.
+</ParamField>
+
+<ParamField path="interval" type="float" default="0.5">
+  Seconds to sleep between consecutive samples when `duration > 0`. Smaller values produce more samples (smoother averages) at the cost of more API calls to the Pterodactyl panel.
+</ParamField>
+
+<ParamField path="drop_outliers" type="int" default="0">
+  Number of highest and lowest samples to discard from each metric before computing the mean. For example, `drop_outliers=1` removes the single highest and single lowest sample. Requires enough samples to have values remaining after dropping — ensure `duration / interval > 2 * drop_outliers`.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="false">
+  When `True`, RAM, disk, and network values are returned in gigabytes instead of megabytes. Pass `gb=True` for servers with large memory allocations where MB figures are unwieldy.
+</ParamField>
+
+---
+
+## Attributes
+
+After construction, the following attributes are set on the `Snapshot` instance:
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `ram` | `float` | Current RAM usage. Unit depends on `gb` flag (MB by default). |
+| `cpu` | `float` | CPU utilization percentage. |
+| `network_in` | `float` | Inbound network traffic. Unit depends on `gb` flag. |
+| `network_out` | `float` | Outbound network traffic. Unit depends on `gb` flag. |
+| `tps` | `float \| None` | Ticks per second. Set only if `Server` has a `getTPS()` method (e.g. `MinecraftServer`). `None` otherwise. |
+| `players` | `int \| None` | Online player count. Set only if `Server` has a `getPlayers()` method. `None` otherwise. |
+| `uptime` | `int` | Server uptime in seconds. Always an instant reading — not smoothed even when `duration > 0`. |
+| `uptime_formatted` | `str` | Human-readable uptime string (e.g. `"2h 14m 08s"`). |
+
+<Note>
+  When `duration > 0`, `tps` and `players` are included in smoothing if the server supports them. When they are not supported, the corresponding lists remain empty and the attributes are set to `None`.
+</Note>
+
+---
+
+## Instant Snapshot
+
+An instant snapshot makes a single API call per metric and returns immediately. Use this when you need current values without any latency budget.
+
+```python
+from hungerlib import Panel, GenericServer, Snapshot
+
+panel = Panel("prod", "https://panel.example.com", "ptlc_key")
+server = GenericServer("lobby", panel, "abc123")
+
+snap = Snapshot(server)
+print(snap)  # formatted multi-line summary
+print(f"RAM: {snap.ram} MB, CPU: {snap.cpu}%")
+print(f"Uptime: {snap.uptime_formatted}")
+```
+
+`print(snap)` outputs a multi-line summary using the `__str__` implementation:
+
+```
+Server: lobby
+Uptime: 2h 14m 08s
+RAM: 512.34
+CPU: 18.72
+Network (in): 1.45
+Network (out): 0.87
+```
+
+---
+
+## Smoothed Snapshot
+
+When `duration > 0`, the constructor blocks and collects samples at `interval`-second intervals, then sets each attribute to the mean of all collected samples. This reduces the effect of momentary CPU or memory spikes on your readings.
+
+```python
+from hungerlib import Panel, GenericServer, Snapshot
+
+panel = Panel("prod", "https://panel.example.com", "ptlc_key")
+server = GenericServer("lobby", panel, "abc123")
+
+# Sample over 5 seconds, every 0.5s, dropping 1 outlier on each end
+snap = Snapshot(server, duration=5.0, interval=0.5, drop_outliers=1)
+print(f"Avg RAM: {snap.ram} MB")
+print(f"Avg CPU: {snap.cpu}%")
+```
+
+With `duration=5.0` and `interval=0.5`, this collects 10 samples. `drop_outliers=1` removes the highest and lowest reading from each metric before averaging, leaving 8 samples in the mean — a reliable baseline for alerting or logging.
+
+<Tip>
+  Use `drop_outliers=1` with `duration >= 3.0` for stable averages under variable load. A 3-second window at 0.5s intervals produces 6 samples; dropping 1 outlier on each end leaves 4 clean samples for the mean.
+</Tip>
+
+---
+
+## Minecraft-Specific Metrics
+
+`MinecraftServer` instances expose `getTPS()` and `getPlayers()` which `Snapshot` detects automatically using `hasattr`. TPS (ticks per second) and player count are populated in both instant and smoothed modes.
+
+```python
+from hungerlib import Panel, MinecraftServer, Snapshot
+
+panel = Panel("prod", "https://panel.example.com", "ptlc_key")
+mc = MinecraftServer(
+    "survival", panel, "server-uuid",
+    "mc.example.com", 25565, 8080, "bridge-token"
+)
+
+# Smoothed over 2 seconds
+snap = Snapshot(mc, duration=2.0, interval=0.5)
+print(f"TPS: {snap.tps}")
+print(f"Players online: {snap.players}")
+print(f"RAM: {snap.ram} MB")
+print(f"CPU: {snap.cpu}%")
+```
+
+---
+
+## Using GB Instead of MB
+
+For servers with large memory allocations, switch to gigabyte reporting with `gb=True`:
+
+```python
+snap = Snapshot(server, gb=True, rounding=3)
+print(f"RAM: {snap.ram} GB")        # e.g. "RAM: 8.192 GB"
+print(f"Net in: {snap.network_in} GB")
+```
+
+---
+
+## Comparing Before and After a Restart
+
+`Snapshot` is particularly useful for capturing resource state on either side of a maintenance event:
+
+```python
+from hungerlib import Snapshot, waitForOffline, waitForOnline
+
+# Capture state before the restart
+before = Snapshot(mc, duration=3.0, drop_outliers=1)
+print(f"Before — RAM: {before.ram} MB, TPS: {before.tps}, Players: {before.players}")
+
+mc.restart()
+waitForOffline(mc, timeout=120)
+waitForOnline(mc, timeout=180)
+
+# Capture state after the restart
+after = Snapshot(mc, duration=3.0, drop_outliers=1)
+print(f"After  — RAM: {after.ram} MB, TPS: {after.tps}")
+print(f"RAM freed: {round(before.ram - after.ram, 2)} MB")
+```
+
+---
+
+## __str__ Reference
+
+`Snapshot.__str__()` always includes the base fields. Minecraft-only fields are appended only when present:
+
+```
+Server: {server.name}
+Uptime: {uptime_formatted}
+RAM: {ram}
+CPU: {cpu}
+Network (in): {network_in}
+Network (out): {network_out}
+TPS: {tps}           ← only if server supports getTPS()
+Online players: {players}  ← only if server supports getPlayers()
+```

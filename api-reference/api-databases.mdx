@@ -1,0 +1,138 @@
+---
+title: "DatabasesAPI — Pterodactyl Database Management Reference"
+sidebarTitle: "DatabasesAPI"
+description: "Reference for DatabasesAPI (panel.databases): list, create, rotate passwords, and delete server databases via the Pterodactyl Client API."
+---
+
+`DatabasesAPI` wraps the Pterodactyl database management endpoints. It is available as `panel.databases` on every `Panel` instance and is also called internally by `GenericServer` methods. All methods accept `server_id` as their first argument and return a raw `requests.Response`.
+
+Pterodactyl creates MySQL databases scoped to a server. Each database gets its own username, password, and remote access rule. Use `rotate_password()` to cycle credentials without recreating the database, or `delete()` to remove it entirely.
+
+```python
+from hungerlib import Panel
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+
+# Direct usage via panel.databases
+response = panel.databases.list("abc123")
+print(response.json())
+```
+
+---
+
+## `list`
+
+Returns all databases attached to a server.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/databases`
+
+```python
+panel.databases.list(server_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server (e.g. `"abc123"`).
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains a `data` array of database objects. Each entry includes `id`, `host` (with `address` and `port`), `name`, `username`, `password`, `connections_from`, and `max_connections`.
+
+```python
+response = panel.databases.list("abc123")
+for db in response.json()["data"]:
+    attrs = db["attributes"]
+    print(attrs["name"], attrs["username"], attrs["host"]["address"])
+```
+
+---
+
+## `create`
+
+Creates a new database for the server. Pterodactyl automatically generates a username and password.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/databases`
+
+```python
+panel.databases.create(server_id, name, remote="%", host=None)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  The name to give the new database. Pterodactyl may prefix it with the server identifier automatically.
+</ParamField>
+
+<ParamField path="remote" type="str" default="%">
+  The remote host from which connections are permitted. Defaults to `"%"`, which allows connections from any host. Pass a specific IP or hostname to restrict access.
+</ParamField>
+
+<ParamField path="host" type="str">
+  The database host ID to use when multiple database hosts are configured on the panel. If `None` (the default), Pterodactyl uses the panel's default database host.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body describes the newly created database, including its auto-generated `username`, `password`, and connection details.
+
+```python
+response = panel.databases.create("abc123", "mydb", remote="10.0.0.1")
+attrs = response.json()["attributes"]
+print(f"DB: {attrs['name']}  User: {attrs['username']}  Pass: {attrs['password']}")
+```
+
+---
+
+## `rotate_password`
+
+Generates a new random password for an existing database without altering the database or its permissions.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/databases/{db_id}/rotate-password`
+
+```python
+panel.databases.rotate_password(server_id, db_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="db_id" type="str" required>
+  The identifier of the database whose password should be rotated. Obtain this from `list()` via `db["attributes"]["id"]`.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains the updated database object with the new `password` field.
+
+```python
+response = panel.databases.rotate_password("abc123", "s1_12345")
+new_password = response.json()["attributes"]["password"]
+print(f"New password: {new_password}")
+```
+
+---
+
+## `delete`
+
+Permanently deletes a database and all data it contains.
+
+**Endpoint:** `DELETE /api/client/servers/{server_id}/databases/{db_id}`
+
+```python
+panel.databases.delete(server_id, db_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="db_id" type="str" required>
+  The identifier of the database to delete.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+<Warning>
+  This action is irreversible. All data stored in the database will be permanently destroyed.
+</Warning>
+
+```python
+panel.databases.delete("abc123", "s1_12345")
+```

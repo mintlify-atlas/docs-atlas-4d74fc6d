@@ -1,0 +1,162 @@
+---
+title: "Utility Functions — clearTerminal, validateAll, and loadConfig"
+sidebarTitle: "Utility Functions"
+description: "Reference for HungerLib utility functions: clearTerminal for cross-platform terminal clearing, validateAll for connectivity checks, and loadConfig for YAML config loading."
+---
+
+HungerLib includes a small set of general-purpose utility functions that cover terminal housekeeping, pre-flight connectivity validation, and YAML-based configuration loading. `clearTerminal` and `validateAll` are importable directly from `hungerlib`; `loadConfig` is also exported from the top-level package.
+
+```python
+from hungerlib import clearTerminal, validateAll, loadConfig
+```
+
+---
+
+## `clearTerminal`
+
+Clears the terminal screen using the appropriate system command for the current platform. Calls `clear` on POSIX systems (Linux, macOS) and `cls` on Windows. Useful at the start of a script loop to keep output readable.
+
+```python
+clearTerminal()
+```
+
+This function takes no parameters and returns `None`.
+
+```python
+from hungerlib import clearTerminal
+
+clearTerminal()
+print("=== HungerLib Automation Dashboard ===")
+```
+
+---
+
+## `validateAll`
+
+Performs a three-step connectivity and state check against both the Pterodactyl panel and a specific server. Returns `True` only when all three checks pass, making it a reliable guard before running any automation that depends on the panel API and a live server.
+
+The three checks performed internally are:
+1. `panel.ping()` — verifies that the panel URL is reachable over HTTP.
+2. `panel.validateAPI()` — verifies that the API token is valid and accepted by the panel.
+3. `server.getStatus() == 'running'` — verifies that the target server is in the `running` power state.
+
+```python
+validateAll(panel, server) -> bool
+```
+
+<ParamField path="panel" type="Panel" required>
+  An authenticated `Panel` instance to check for reachability and API validity.
+</ParamField>
+
+<ParamField path="server" type="Server" required>
+  A `GenericServer` or `MinecraftServer` instance whose power state is checked.
+</ParamField>
+
+**Returns:** `bool` — `True` if the panel is reachable, the API key is valid, and the server status is `"running"`. Returns `False` if any check fails.
+
+```python
+from hungerlib import Panel, GenericServer, validateAll
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+server = GenericServer(panel, "abc123", "My Server")
+
+if not validateAll(panel, server):
+    print("Pre-flight check failed — aborting.")
+    exit(1)
+
+print("All checks passed, proceeding with automation.")
+```
+
+---
+
+## `loadConfig`
+
+Loads a typed configuration dataclass from a YAML file. This is HungerLib's primary configuration system, designed to give automation scripts a structured, validated config with safe fallbacks and attribute-style YAML access.
+
+`loadConfig` reads from a user-editable YAML file, maps values to dataclass fields by dotted YAML path, applies fallback values when keys are absent, and attaches two special namespaces — `.raw` and `.fallbacks` — to the returned instance.
+
+```python
+loadConfig(schema, runtime_path=None)
+```
+
+<ParamField path="schema" type="type" required>
+  A dataclass class (not an instance) decorated with `@dataclass` that defines the configuration structure. The class must set `__mode__ = "config"` as a class-level attribute for `loadConfig` to treat field defaults as dotted YAML key paths.
+</ParamField>
+
+<ParamField path="runtime_path" type="str | None" default="None">
+  Optional filesystem path to the YAML config file. If `None`, `loadConfig` reads `__user_config_path__` from the schema class. If the file does not exist, the directory is created and either the default config (from `__default_config_path__`) is copied in, or an empty file is created.
+</ParamField>
+
+**Returns:** An instance of `schema` populated with values from the YAML file (or fallbacks). Two additional attributes are attached at runtime:
+
+<ResponseField name="config.raw" type="RawNamespace">
+  A namespace object providing attribute-style access to the raw parsed YAML values. Attribute lookups resolve dotted YAML paths using the dataclass field defaults. Use this to read YAML values that were not mapped to a dataclass field, or to inspect the raw input before conversion.
+</ResponseField>
+
+<ResponseField name="config.fallbacks" type="object">
+  The `fallbacks` class imported from the same module as `schema`. Contains the default values used when a YAML key is absent. Also used by `Validator` during schema validation.
+</ResponseField>
+
+### Schema class attributes
+
+Your dataclass schema can define the following class-level attributes to control `loadConfig` behaviour:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `__mode__` | `str` | Must be `"config"` to enable dotted-path YAML resolution. |
+| `__user_config_path__` | `str` | Path to the user's editable YAML file (e.g. `"config/config.yaml"`). Used when `runtime_path=None`. |
+| `__default_config_path__` | `str` | Package-relative path to a bundled default YAML file. Copied to `__user_config_path__` on first run if the user config does not yet exist. |
+
+### Full example
+
+```python
+# myapp/config.py
+from dataclasses import dataclass
+
+class fallbacks:
+    host = "localhost"
+    port = 25565
+    debug = False
+
+@dataclass
+class Config:
+    __mode__ = "config"
+    __user_config_path__ = "config/config.yaml"
+    __default_config_path__ = "defaults/config.yaml"
+
+    host: str = "server.host"       # maps to YAML key "server.host"
+    port: int = "server.port"       # maps to YAML key "server.port"
+    debug: bool = "app.debug"       # maps to YAML key "app.debug"
+```
+
+```yaml
+# config/config.yaml
+server:
+  host: "play.example.com"
+  port: 25566
+
+app:
+  debug: true
+```
+
+```python
+# main.py
+from hungerlib import loadConfig
+from myapp.config import Config
+
+config = loadConfig(Config)
+
+print(config.host)             # "play.example.com"
+print(config.port)             # 25566
+print(config.debug)            # True
+
+# Raw YAML access
+print(config.raw.host)         # "play.example.com" (via dotted path lookup)
+
+# Fallback values
+print(config.fallbacks.port)   # 25565
+```
+
+<Note>
+  If a YAML key is missing, `loadConfig` falls back to the value defined in the `fallbacks` class in the same module as your schema. If no fallback is defined for a field, the value is set to `None`. Use HungerLib's `Validator` system to enforce required fields and raise `FatalError` when critical keys are absent.
+</Note>

@@ -1,0 +1,218 @@
+---
+title: "Panel — Pterodactyl HTTP Client Reference"
+sidebarTitle: "Panel"
+description: "Complete reference for the Panel class: constructor, health checks, HTTP primitives, and API sub-module accessors for files, backups, databases, schedules, startup, and commands."
+---
+
+`Panel` is the top-level entry point for all communication with a Pterodactyl panel. It wraps the Pterodactyl Client API, handles authentication headers, and exposes thin HTTP primitives (`get`, `post`, `delete`, `patch`) that every other HungerLib class builds on. Instantiate one `Panel` per panel instance and pass it into your server objects.
+
+```python
+from hungerlib import Panel
+
+panel = Panel(
+    name="production",
+    url="https://panel.example.com",
+    api_key="ptlc_xxxxxxxxxxxxxxxxxxxx",
+)
+
+if panel.ping():
+    print("Panel is reachable")
+```
+
+---
+
+## Constructor
+
+```python
+Panel(name: str, url: str, api_key: str)
+```
+
+<ParamField path="name" type="str" required>
+  A human-readable label for this panel instance. Used in logging and `__str__` output — not sent to the API.
+</ParamField>
+
+<ParamField path="url" type="str" required>
+  Base URL of the Pterodactyl panel, e.g. `https://panel.example.com`. Trailing slashes are stripped automatically.
+</ParamField>
+
+<ParamField path="api_key" type="str" required>
+  Pterodactyl Client API key (starts with `ptlc_`). Passed as a `Bearer` token on every request.
+</ParamField>
+
+---
+
+## Properties
+
+### `headers`
+
+```python
+@property
+panel.headers -> dict
+```
+
+Returns the standard authentication and content-type headers used on every request. You typically do not need to call this directly — all HTTP methods attach it automatically.
+
+**Returns** `dict`:
+
+```json
+{
+  "Authorization": "Bearer ptlc_xxxx",
+  "Accept": "application/json",
+  "Content-Type": "application/json"
+}
+```
+
+---
+
+## Health Checks
+
+### `ping()`
+
+```python
+panel.ping() -> bool
+```
+
+Performs a lightweight `GET /api/client` request to verify that the panel is reachable and responsive. Catches all network-level exceptions internally and returns `False` instead of raising.
+
+**Returns** `bool` — `True` if the panel responds with HTTP 200, `False` for any error or non-200 status.
+
+```python
+if not panel.ping():
+    print("Panel is unreachable")
+```
+
+---
+
+### `validateAPI()`
+
+```python
+panel.validateAPI() -> bool
+```
+
+Calls `GET /api/client/account` to verify that the configured API key is valid and has the necessary account-level permissions.
+
+**Returns** `bool` — `True` if the response is HTTP 200 (key is valid), `False` otherwise.
+
+```python
+if not panel.validateAPI():
+    raise RuntimeError("Invalid or expired API key")
+```
+
+---
+
+## HTTP Primitives
+
+These methods are thin wrappers around `requests` and are used internally by every API sub-module. You can call them directly for custom endpoint access.
+
+### `get()`
+
+```python
+panel.get(path: str, timeout: int = 5) -> requests.Response
+```
+
+<ParamField path="path" type="str" required>
+  API path to append to the base URL, e.g. `"/api/client/servers"`.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="5">
+  Request timeout in seconds.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `post()`
+
+```python
+panel.post(path: str, json: dict | None = None, timeout: int = 5) -> requests.Response
+```
+
+<ParamField path="path" type="str" required>
+  API path to POST to.
+</ParamField>
+
+<ParamField path="json" type="dict | None" default="None">
+  JSON-serialisable dict to send as the request body.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="5">
+  Request timeout in seconds.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `delete()`
+
+```python
+panel.delete(path: str, timeout: int = 5) -> requests.Response
+```
+
+<ParamField path="path" type="str" required>
+  API path to send the DELETE request to.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="5">
+  Request timeout in seconds.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `patch()`
+
+```python
+panel.patch(path: str, json: dict | None = None, timeout: int = 5) -> requests.Response
+```
+
+<ParamField path="path" type="str" required>
+  API path to PATCH.
+</ParamField>
+
+<ParamField path="json" type="dict | None" default="None">
+  JSON-serialisable dict to send as the request body.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="5">
+  Request timeout in seconds.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `_raw_upload()`
+
+```python
+panel._raw_upload(url: str, file_data) -> requests.Response
+```
+
+Sends a multipart `POST` request for file uploads. Unlike the other HTTP methods, this call only attaches the `Authorization` header (no `Content-Type`), allowing `requests` to set the multipart boundary automatically.
+
+<ParamField path="url" type="str" required>
+  API path for the upload endpoint.
+</ParamField>
+
+<ParamField path="file_data" type="dict" required>
+  A `files` dict as expected by `requests.post(files=...)`, e.g. `{"files": ("filename.txt", open(..., "rb"))}`.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+## API Sub-Modules
+
+After construction, `Panel` exposes the following sub-module attributes. Each sub-module is a thin API wrapper that `GenericServer` delegates to — you generally call the server-level convenience methods rather than these directly.
+
+| Attribute | Class | Description |
+|---|---|---|
+| `panel.schedules` | `ScheduleAPI` | Create, update, delete, and run scheduled tasks. See [GenericServer — Schedules](/api-reference/generic-server#schedules). |
+| `panel.files` | `FileManagerAPI` | List, upload, download, copy, move, compress, and delete server files. See [GenericServer — Files](/api-reference/generic-server#files). |
+| `panel.backups` | `BackupsAPI` | List, create, download, and delete server backups. See [GenericServer — Backups](/api-reference/generic-server#backups). |
+| `panel.databases` | `DatabasesAPI` | List, create, rotate passwords for, and delete server databases. See [GenericServer — Databases](/api-reference/generic-server#databases). |
+| `panel.startup` | `StartupAPI` | Read and update server startup variables. See [GenericServer — Startup](/api-reference/generic-server#startup). |
+| `panel.commands` | `CommandAPI` | Send raw console commands to a server. |

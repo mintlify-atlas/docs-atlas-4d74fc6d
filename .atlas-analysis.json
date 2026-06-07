@@ -1,0 +1,141 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "HungerLib",
+  "projectDescription": "A Python automation library for Pterodactyl game server panels, providing RCON integration, panel API helpers, Minecraft-specific server management, scheduling utilities, and structured logging.",
+  "theme": "luma",
+  "primaryColor": "#E8501A",
+  "lightColor": "#FF7A4D",
+  "darkColor": "#C03A08",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "guides/panel",
+              "guides/servers",
+              "guides/bridge"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "guides/scheduler",
+              "guides/message-router",
+              "guides/validator",
+              "guides/snapshot"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Classes",
+            "pages": [
+              "api-reference/panel",
+              "api-reference/generic-server",
+              "api-reference/minecraft-server",
+              "api-reference/bridge-client",
+              "api-reference/message-router",
+              "api-reference/validator",
+              "api-reference/snapshot"
+            ]
+          },
+          {
+            "group": "Panel API Modules",
+            "pages": [
+              "api-reference/api-files",
+              "api-reference/api-backups",
+              "api-reference/api-databases",
+              "api-reference/api-schedules",
+              "api-reference/api-startup",
+              "api-reference/api-commands"
+            ]
+          },
+          {
+            "group": "Utilities & Exceptions",
+            "pages": [
+              "api-reference/utils-time",
+              "api-reference/utils-misc",
+              "api-reference/exceptions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Pterodactyl panel API client with support for files, backups, databases, schedules, and startup variables",
+    "GenericServer class wrapping power control, resource monitoring, and file management",
+    "MinecraftServer class with HungerBridge integration for TPS, player counts, and console commands",
+    "BridgeClient for the HungerBridge v2 API (ping, info, TPS, players, run commands, log)",
+    "loadConfig utility for dataclass-backed YAML configuration with fallbacks",
+    "MessageRouter for multi-destination logging (terminal, Minecraft broadcast, file) with color maps",
+    "Validator for config schema validation with fatal, type-mismatch, fallback, and recommended error levels",
+    "Snapshot for instant or time-averaged server resource metrics",
+    "Scheduling helpers: snapSchedule, runCountdownEvents, waitForOnline, waitForOffline"
+  ],
+  "publicApiSurface": [
+    "Panel(name, url, api_key)",
+    "Panel.ping() -> bool",
+    "Panel.validateAPI() -> bool",
+    "Panel.schedules / .files / .backups / .databases / .startup / .commands",
+    "GenericServer(name, panel, server_id)",
+    "GenericServer.start() / .stop() / .restart() / .kill()",
+    "GenericServer.getStatus() -> str",
+    "GenericServer.isOnline() / .isOffline() -> bool",
+    "GenericServer.getRAM() / .getCPU() / .getDisk() / .getNetworkIn() / .getNetworkOut()",
+    "GenericServer.getUptime(formatted) -> int | str",
+    "GenericServer.refresh() -> dict",
+    "GenericServer.listFiles() / .uploadFile() / .downloadFile() / .deleteFiles() / .renameFiles() / .copyFiles() / .moveFiles()",
+    "GenericServer.createFolder() / .compress() / .decompress()",
+    "GenericServer.listBackups() / .createBackup() / .deleteBackup() / .downloadBackup()",
+    "GenericServer.listDatabases() / .createDatabase() / .rotateDatabasePassword() / .deleteDatabase()",
+    "GenericServer.getStartupVariables() / .updateStartupVariable()",
+    "GenericServer.listSchedules() / .createSchedule() / .updateSchedule() / .deleteSchedule() / .runSchedule()",
+    "GenericServer.enableSchedule() / .disableSchedule() / .getSchedule()",
+    "MinecraftServer(name, panel, server_id, server_domain, server_port, bridge_port, bridge_token)",
+    "MinecraftServer.getPlayers(mode) -> int | list",
+    "MinecraftServer.getTPS(mode, rounding) -> float",
+    "MinecraftServer.sendConsoleCommand(command, show_console, silent, normalize)",
+    "MinecraftServer.sendBroadcast(message)",
+    "BridgeClient(url, token)",
+    "BridgeClient.runCommand(command, show_console, silent, normalize)",
+    "BridgeClient.log(message, level)",
+    "BridgeClient.getPing() -> int",
+    "BridgeClient.getVersion() / .getPlatform() / .getMinecraftVersion() / .getStatus()",
+    "BridgeClient.getTPS(mode) -> float",
+    "BridgeClient.getPlayers(mode) -> int | list",
+    "loadConfig(schema, runtime_path)",
+    "MessageRouter(name, Servers, log_path, ...)",
+    "MessageRouter.info() / .warn() / .error()",
+    "MessageRouter.origin() / .destination() / .broadcast() / .filelog()",
+    "Validator(msg_templates)",
+    "Validator.run(*configs) -> str",
+    "Validator.validate_key_types(obj, schema)",
+    "Validator.check_field(obj, name)",
+    "Snapshot(Server, rounding, duration, interval, drop_outliers, gb)",
+    "snapSchedule(minimumMinutes, snapMinutes) -> dict",
+    "runCountdownEvents(target_time, minute_callbacks, second_callbacks, tick_interval)",
+    "waitForOnline(server, timeout, interval) -> bool",
+    "waitForOffline(server, timeout, interval) -> bool",
+    "secsUntil(target) -> int",
+    "minsUntil(target) -> int",
+    "clearTerminal()",
+    "validateAll(panel, server) -> bool",
+    "ValidationError / FatalError / TypeMismatchError / FallbackError / RecommendedError",
+    "HungerLibError / InvalidLevelError / InvalidModeError / HungerBridgeError"
+  ]
+}

@@ -1,0 +1,193 @@
+---
+title: "Multi-Destination Logging with MessageRouter"
+sidebarTitle: "MessageRouter"
+description: "MessageRouter routes formatted messages to the terminal, in-game Minecraft broadcasts, HungerBridge server logs, and rotating daily log files from a single call."
+---
+
+Automation scripts that manage multiple game servers need to communicate across several channels simultaneously: a human operator watching a terminal, players in-game who need countdown warnings, console logs persisted for later auditing, and per-server bridge logs that record operational events. `MessageRouter` handles all of this from a single object. One call to `router.info(...)` prints a timestamped, color-coded line to the terminal and appends a clean plain-text entry to a rotating daily log file. One call to `router.broadcast(...)` sends a Minecraft-formatted message to every server in your list. You stop managing formatters, file handles, and color-code pipelines individually and express intent instead.
+
+---
+
+## Constructor
+
+```python
+MessageRouter(
+    name: str,
+    Servers: list,
+    log_path: str,
+    origin_maps      = [maps.ascii_colors],
+    destination_maps = [maps.ascii_colors],
+    broadcast_maps   = [maps.mc_colors],
+    file_maps        = [maps.strip_colors],
+    prefix_maps      = [maps.ascii_colors, maps.time],
+    info_prefix  = "<white>[%hh%:%mm%:%ss%] [INFO]: ",
+    warn_prefix  = "<yellow>[%hh%:%mm%:%ss%] [WARN]: ",
+    error_prefix = "<red>[%hh%:%mm%:%ss%] [ERROR]: ",
+)
+```
+
+<ParamField path="name" type="str" required>
+  A short identifier for this router instance. Used as the Python `logging` logger name and embedded in log filenames (e.g. `automation_2024-06-01.log`).
+</ParamField>
+
+<ParamField path="Servers" type="list" required>
+  A list of `GenericServer` or `MinecraftServer` instances that `destination` and `broadcast` routing methods will iterate over. Servers without a `bridge` attribute are silently skipped by `destination`; servers without a `sendBroadcast` method are silently skipped by `broadcast`.
+</ParamField>
+
+<ParamField path="log_path" type="str" required>
+  Directory path where daily log files will be written. The directory is created automatically (including parent directories) if it does not exist. Files are named `{name}_YYYY-MM-DD.log` and rotated daily at the file-system level — a new handler is initialized per run.
+</ParamField>
+
+<ParamField path="origin_maps" type="list" default="[maps.ascii_colors]">
+  The `mapres` map list applied to message text when routing to the terminal via `origin()`. Defaults to ASCII ANSI color resolution so that `<green>` and similar tags are converted to terminal escape codes.
+</ParamField>
+
+<ParamField path="destination_maps" type="list" default="[maps.ascii_colors]">
+  Map list applied to text sent to server bridge logs via `destination()`. Defaults to ASCII colors so that color tags produce readable console output in the HungerBridge log.
+</ParamField>
+
+<ParamField path="broadcast_maps" type="list" default="[maps.mc_colors]">
+  Map list applied to text sent to in-game broadcasts via `broadcast()`. Defaults to Minecraft color resolution so that `&e`, `&c`, and other Minecraft color codes are preserved as-is and rendered by the game client.
+</ParamField>
+
+<ParamField path="file_maps" type="list" default="[maps.strip_colors]">
+  Map list applied to text written to log files via `filelog()`. Defaults to color stripping so that log files contain clean plain text without embedded escape codes or Minecraft formatting characters.
+</ParamField>
+
+<ParamField path="prefix_maps" type="list" default="[maps.ascii_colors, maps.time]">
+  Map list applied when resolving prefix strings (`info_prefix`, `warn_prefix`, `error_prefix`). Including `maps.time` allows `%hh%`, `%mm%`, and `%ss%` tokens to expand to the current wall-clock time.
+</ParamField>
+
+<ParamField path="info_prefix" type="str" default='"<white>[%hh%:%mm%:%ss%] [INFO]: "'>
+  Prefix template prepended to all terminal output at the `info` level. Supports `<color>` tags (resolved via `prefix_maps`) and `%hh%:%mm%:%ss%` time tokens.
+</ParamField>
+
+<ParamField path="warn_prefix" type="str" default='"<yellow>[%hh%:%mm%:%ss%] [WARN]: "'>
+  Prefix template for the `warn` level. Defaults to yellow ANSI coloring.
+</ParamField>
+
+<ParamField path="error_prefix" type="str" default='"<red>[%hh%:%mm%:%ss%] [ERROR]: "'>
+  Prefix template for the `error` level. Defaults to red ANSI coloring.
+</ParamField>
+
+---
+
+## Routing Methods
+
+`MessageRouter` exposes two layers of methods. The **primitive routes** each send to exactly one destination and return the formatted string. The **passthrough helpers** (`info`, `warn`, `error`) combine `origin` and `filelog` into a single call for convenience.
+
+### info / warn / error
+
+```python
+router.info(text, extra_maps=None, override_maps=None, **ctx)
+router.warn(text, extra_maps=None, override_maps=None, **ctx)
+router.error(text, extra_maps=None, override_maps=None, **ctx)
+```
+
+Send `text` to both the **terminal** (via `origin`) and the **log file** (via `filelog`) in one call. The level (`info`, `warn`, `error`) controls which prefix template is applied on the terminal and which Python log level is used in the file.
+
+### origin
+
+```python
+router.origin(text, level="info", extra_maps=None, override_maps=None, **ctx)
+```
+
+Prints a prefixed, color-resolved message to the terminal (`stdout`) only. No file is written. Use this for transient status lines you want visible in the console but not persisted.
+
+### destination
+
+```python
+router.destination(text, level="info", extra_maps=None, override_maps=None, **ctx)
+```
+
+Sends the formatted message to every server in `Servers` that exposes a `.bridge` attribute by calling `server.bridge.log(msg, level)`. This writes to the HungerBridge server log, not to the terminal or the file logger. Use it for per-server operational records.
+
+### broadcast
+
+```python
+router.broadcast(text, extra_maps=None, override_maps=None, **ctx)
+```
+
+Calls `server.sendBroadcast(msg)` on every server in `Servers` that supports it (i.e. `MinecraftServer` instances). Text is resolved through `broadcast_maps` (Minecraft color codes by default) so `&e`, `&c`, etc. are preserved and rendered in-game.
+
+### filelog
+
+```python
+router.filelog(text, level="info", extra_maps=None, override_maps=None, **ctx)
+```
+
+Writes the message to the rotating daily log file only — no terminal output, no server messages. Text is resolved through `file_maps` which strips color tags by default, keeping log files human-readable.
+
+---
+
+## Color Maps and the `<color>` Syntax
+
+`MessageRouter` uses the [`mapres`](https://pypi.org/project/mapres/) library to resolve color tokens in message text. Different routes apply different map lists, so the same `<green>text` input produces different outputs depending on where it's sent:
+
+<CardGroup cols={3}>
+  <Card title="Terminal (origin)" icon="terminal">
+    Applies `maps.ascii_colors`. `<green>` becomes the ANSI escape code `\033[32m` for terminal color output.
+  </Card>
+  <Card title="In-game (broadcast)" icon="gamepad-2">
+    Applies `maps.mc_colors`. Minecraft `&` color codes are passed through unchanged for the game client to render.
+  </Card>
+  <Card title="Log files (filelog)" icon="file-text">
+    Applies `maps.strip_colors`. All color tags and codes are removed, leaving clean plain text in the `.log` file.
+  </Card>
+</CardGroup>
+
+Prefix strings also support `%hh%`, `%mm%`, and `%ss%` time tokens (resolved via `maps.time`) that expand to the current hour, minute, and second at the time the message is routed.
+
+---
+
+## Example
+
+```python
+from hungerlib import Panel, MinecraftServer, MessageRouter
+
+panel = Panel("prod", "https://panel.example.com", "ptlc_key")
+mc = MinecraftServer("survival", panel, "abc", "mc.example.com", 25565, 8080, "token")
+
+router = MessageRouter(
+    name="automation",
+    Servers=[mc],
+    log_path="logs/",
+)
+
+# Terminal + log file: "[02:30 PM] [INFO]: Restart cycle started"
+router.info("<green>Restart cycle started")
+
+# In-game broadcast to all MinecraftServer instances
+router.broadcast("&eServer restarting in 5 minutes!")
+
+# HungerBridge server log on all servers with a .bridge attribute
+router.destination("Restart initiated", level="warn")
+
+# Terminal only — not persisted to file
+router.origin("<cyan>Waiting for server to go offline...", level="info")
+
+# File only — no terminal output
+router.filelog("Restart completed successfully", level="info")
+```
+
+<Tip>
+  Use `router.broadcast()` for all player-visible messages and `router.destination()` for console-level operational logs. Reserve `router.info()` / `router.warn()` / `router.error()` for the operator terminal and the audit log file.
+</Tip>
+
+<Note>
+  Log files are written to `{log_path}/{name}_YYYY-MM-DD.log`. A new log file is created each calendar day. If you run a long-lived process that crosses midnight, the file handler created at startup continues writing to the previous day's file — restart the process or re-initialize `MessageRouter` to roll over to the new day's file.
+</Note>
+
+---
+
+## Routing Reference
+
+| Method | Terminal | Log File | Bridge Log | In-game Broadcast |
+|---|:---:|:---:|:---:|:---:|
+| `info` | ✅ | ✅ | ❌ | ❌ |
+| `warn` | ✅ | ✅ | ❌ | ❌ |
+| `error` | ✅ | ✅ | ❌ | ❌ |
+| `origin` | ✅ | ❌ | ❌ | ❌ |
+| `destination` | ❌ | ❌ | ✅ | ❌ |
+| `broadcast` | ❌ | ❌ | ❌ | ✅ |
+| `filelog` | ❌ | ✅ | ❌ | ❌ |

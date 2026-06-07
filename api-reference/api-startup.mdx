@@ -1,0 +1,78 @@
+---
+title: "StartupAPI — Pterodactyl Startup Variable Reference"
+sidebarTitle: "StartupAPI"
+description: "Reference for StartupAPI (panel.startup): list and update server startup variables via the Pterodactyl Client API."
+---
+
+`StartupAPI` exposes Pterodactyl's startup variable endpoints. It is available as `panel.startup` on every `Panel` instance and allows you to read and modify the environment variables that are injected into a server's startup command — for example, the server version, maximum players, or any other egg-defined variable.
+
+Changes made via `update()` take effect the next time the server starts. All methods accept `server_id` as their first argument and return a raw `requests.Response`.
+
+```python
+from hungerlib import Panel
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+
+# Direct usage via panel.startup
+response = panel.startup.list("abc123")
+print(response.json())
+```
+
+---
+
+## `list`
+
+Returns all startup variables defined for the server, along with their current values and validation rules.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/startup`
+
+```python
+panel.startup.list(server_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server (e.g. `"abc123"`).
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains a `data` array of variable objects. Each variable includes `name`, `description`, `env_variable`, `default_value`, `server_value`, `is_editable`, and `rules` (a pipe-separated Laravel validation string).
+
+```python
+response = panel.startup.list("abc123")
+for var in response.json()["data"]:
+    attrs = var["attributes"]
+    print(f"{attrs['env_variable']}: {attrs['server_value']} (default: {attrs['default_value']})")
+```
+
+---
+
+## `update`
+
+Updates the value of a single startup variable by its environment variable key.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/startup/variable`
+
+```python
+panel.startup.update(server_id, key, value)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  The environment variable name to update (e.g. `"SERVER_JARFILE"`, `"MAX_PLAYERS"`). This must match the `env_variable` field returned by `list()`.
+</ParamField>
+
+<ParamField path="value" type="str" required>
+  The new value to assign to the variable. Pterodactyl validates this against the variable's `rules` before accepting it.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains the updated variable object reflecting the new `server_value`.
+
+```python
+# Update the Minecraft server version
+panel.startup.update("abc123", "SERVER_JARFILE", "server-1.20.4.jar")
+
+# Set max players
+panel.startup.update("abc123", "MAX_PLAYERS", "50")
+```

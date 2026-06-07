@@ -1,0 +1,207 @@
+---
+title: "MinecraftServer — Minecraft-Specific Server Reference"
+sidebarTitle: "MinecraftServer"
+description: "Complete reference for MinecraftServer, extending GenericServer with HungerBridge integration for TPS monitoring, player queries, console commands, and broadcasts."
+---
+
+`MinecraftServer` extends [`GenericServer`](/api-reference/generic-server) with Minecraft-specific capabilities powered by the [HungerBridge v2 API](/api-reference/bridge-client). In addition to the full Pterodactyl control surface inherited from `GenericServer`, it connects to a running HungerBridge plugin instance to expose live TPS readings, online player counts and names, authenticated console command execution, and `tellraw` broadcasts — all without opening a WebSocket console.
+
+A `BridgeClient` instance is created automatically during construction and stored at `self.bridge`. You can call `self.bridge` methods directly for lower-level access.
+
+```python
+from hungerlib import Panel
+from hungerlib.servers import MinecraftServer
+
+panel = Panel("production", "https://panel.example.com", "ptlc_xxxx")
+
+mc = MinecraftServer(
+    name="survival",
+    panel=panel,
+    server_id="a1b2c3d4",
+    server_domain="mc.example.com",
+    server_port=25565,
+    bridge_port=8080,
+    bridge_token="my-secret-token",
+)
+
+print(mc.getTPS())           # e.g. 19.982
+print(mc.getPlayers())       # e.g. 7
+mc.sendBroadcast("Server restarting in 5 minutes!")
+```
+
+---
+
+## Constructor
+
+```python
+MinecraftServer(
+    name: str,
+    panel: Panel,
+    server_id: str,
+    server_domain: str,
+    server_port: int,
+    bridge_port: int,
+    bridge_token: str,
+)
+```
+
+<ParamField path="name" type="str" required>
+  Human-readable label for this server. Passed through to `GenericServer`.
+</ParamField>
+
+<ParamField path="panel" type="Panel" required>
+  Authenticated [`Panel`](/api-reference/panel) instance. Passed through to `GenericServer` for all Pterodactyl API calls.
+</ParamField>
+
+<ParamField path="server_id" type="str" required>
+  Pterodactyl server short UUID. Passed through to `GenericServer`.
+</ParamField>
+
+<ParamField path="server_domain" type="str" required>
+  Hostname or IP address where the Minecraft server is reachable, e.g. `"mc.example.com"` or `"10.0.0.5"`. Used to construct the HungerBridge base URL and stored as `self.server_domain`.
+</ParamField>
+
+<ParamField path="server_port" type="int" required>
+  The Minecraft game port (typically `25565`). Stored as `self.server_port` for reference; not used internally for bridge communication.
+</ParamField>
+
+<ParamField path="bridge_port" type="int" required>
+  The port that the HungerBridge HTTP API is listening on. Combined with `server_domain` to build `http://{server_domain}:{bridge_port}` and passed to the `BridgeClient` constructor.
+</ParamField>
+
+<ParamField path="bridge_token" type="str" required>
+  The `X-Auth-Key` token configured in HungerBridge. Passed directly to `BridgeClient`.
+</ParamField>
+
+After construction, `self.bridge` holds the [`BridgeClient`](/api-reference/bridge-client) instance for direct low-level access.
+
+---
+
+## Minecraft Methods
+
+### `getPlayers()`
+
+```python
+mc.getPlayers(mode: str = "count") -> int | list | None
+```
+
+Queries the HungerBridge `/v2/players` endpoint and returns either a count or a list of online player names.
+
+<ParamField path="mode" type="str" default="count">
+  Controls what is returned:
+  - `"count"` — returns the integer number of online players.
+  - `"list"` — returns a `list[str]` of online player usernames.
+</ParamField>
+
+**Returns** `int` when `mode="count"`, `list[str]` when `mode="list"`, or `None` if the bridge is unreachable.
+
+**Raises** `InvalidModeError` if `mode` is not `"count"` or `"list"`.
+
+```python
+count = mc.getPlayers("count")   # 7
+names = mc.getPlayers("list")    # ["Steve", "Alex", "Notch"]
+```
+
+---
+
+### `getTPS()`
+
+```python
+mc.getTPS(mode: str = "current", rounding: int = 3) -> float | None
+```
+
+Returns the server's TPS (ticks per second) from the HungerBridge `/v2/tps` endpoint. Returns `None` silently on invalid mode rather than raising, making it safe to call in monitoring loops.
+
+<ParamField path="mode" type="str" default="current">
+  Which TPS measurement to return. Maps directly to [`BridgeClient.getTPS(mode)`](/api-reference/bridge-client#gettps):
+  - `"current"` — EMA20, the smoothed near-real-time TPS.
+  - `"1m"` — EMA over the last ~1200 ticks (≈1 minute).
+  - `"5m"` — EMA over the last ~6000 ticks (≈5 minutes).
+  - `"tick_time"` — Average tick duration in milliseconds.
+</ParamField>
+
+<ParamField path="rounding" type="int" default="3">
+  Number of decimal places to round the result to. Pass `None` to skip rounding.
+</ParamField>
+
+**Returns** `float` rounded to `rounding` places, or `None` if the mode is invalid or the bridge returns no data.
+
+```python
+print(mc.getTPS())           # 19.982  (current EMA20)
+print(mc.getTPS("5m"))       # 19.755  (5-minute average)
+print(mc.getTPS("tick_time")) # 1.243  (ms per tick)
+```
+
+---
+
+### `sendConsoleCommand()`
+
+```python
+mc.sendConsoleCommand(
+    command: str,
+    show_console: bool = False,
+    silent: bool = False,
+    normalize: bool = True,
+) -> str | dict | None
+```
+
+Executes a command on the Minecraft server through HungerBridge and optionally returns its output. Delegates directly to [`BridgeClient.runCommand()`](/api-reference/bridge-client#runcommand).
+
+<ParamField path="command" type="str" required>
+  The Minecraft server command to execute, without a leading `/`, e.g. `"op Steve"` or `"say Hello"`.
+</ParamField>
+
+<ParamField path="show_console" type="bool" default="False">
+  When `True`, the command and its output are echoed to the server console log.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  When `True`, suppresses any in-game feedback messages produced by the command.
+</ParamField>
+
+<ParamField path="normalize" type="bool" default="True">
+  When `True` (default), output lines are joined into a single `str`. When `False`, the raw bridge response dict is returned.
+</ParamField>
+
+**Returns** `str` of normalised output when `normalize=True`, the raw `dict` response when `normalize=False`, or `None` if the bridge returns no output.
+
+```python
+output = mc.sendConsoleCommand("list", show_console=True)
+print(output)  # "There are 3 of a max of 20 players online: Steve, Alex, Notch"
+```
+
+---
+
+### `sendBroadcast()`
+
+```python
+mc.sendBroadcast(message: str) -> str | dict | None
+```
+
+Sends a `tellraw @a` command to display a message to all online players. Double-quotes in `message` are automatically escaped.
+
+<ParamField path="message" type="str" required>
+  The plain-text message to broadcast to all players. Do not include JSON formatting — the method wraps the text in a minimal `tellraw` JSON object.
+</ParamField>
+
+**Returns** The normalised output of the underlying `tellraw` command (typically an empty string or `None`).
+
+```python
+mc.sendBroadcast("Welcome to the server!")
+mc.sendBroadcast("Restarting in 60 seconds...")
+```
+
+---
+
+## Inherited Methods
+
+`MinecraftServer` inherits every method from `GenericServer` without modification. Refer to the [`GenericServer` reference](/api-reference/generic-server) for full documentation of:
+
+- **Resources**: `refresh()`, `resources()`, `getRAM()`, `getCPU()`, `getDisk()`, `getNetworkIn()`, `getNetworkOut()`, `getUptime()`
+- **Status**: `getStatus()`, `isOnline()`, `isOffline()`
+- **Power**: `powerAction()`, `start()`, `stop()`, `restart()`, `kill()`
+- **Files**: `listFiles()`, `downloadFile()`, `uploadFile()`, `deleteFiles()`, `renameFiles()`, `copyFiles()`, `moveFiles()`, `createFolder()`, `compress()`, `decompress()`
+- **Backups**: `listBackups()`, `createBackup()`, `deleteBackup()`, `downloadBackup()`
+- **Databases**: `listDatabases()`, `createDatabase()`, `rotateDatabasePassword()`, `deleteDatabase()`
+- **Startup**: `getStartupVariables()`, `updateStartupVariable()`
+- **Schedules**: `listSchedules()`, `createSchedule()`, `updateSchedule()`, `deleteSchedule()`, `runSchedule()`, `enableSchedule()`, `disableSchedule()`, `getSchedule()`

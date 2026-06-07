@@ -1,0 +1,787 @@
+---
+title: "GenericServer — Pterodactyl Server Control Reference"
+sidebarTitle: "GenericServer"
+description: "Complete reference for GenericServer: resource monitoring, power actions, file management, backups, databases, startup variables, and schedule management methods."
+---
+
+`GenericServer` is the base class for all HungerLib server objects. It wraps the Pterodactyl Client API for a single server identifier and provides resource monitoring, power control, file management, backup and database operations, startup variable configuration, and schedule management. For Minecraft-specific functionality — TPS, player queries, and console commands via HungerBridge — see [`MinecraftServer`](/api-reference/minecraft-server), which extends this class.
+
+```python
+from hungerlib import Panel
+from hungerlib.servers import GenericServer
+
+panel = Panel("production", "https://panel.example.com", "ptlc_xxxx")
+server = GenericServer("my-server", panel, "a1b2c3d4")
+
+server.start()
+print(server.getRAM())  # e.g. 512.34 (MB)
+```
+
+---
+
+## Constructor
+
+```python
+GenericServer(name: str, panel: Panel, server_id: str)
+```
+
+<ParamField path="name" type="str" required>
+  A human-readable label for this server. Used in logging and display only.
+</ParamField>
+
+<ParamField path="panel" type="Panel" required>
+  An authenticated [`Panel`](/api-reference/panel) instance that this server will use for all API calls.
+</ParamField>
+
+<ParamField path="server_id" type="str" required>
+  The Pterodactyl server identifier (short UUID), found in the panel URL or API response.
+</ParamField>
+
+---
+
+## Resources
+
+These methods read live or cached resource data from the Pterodactyl API.
+
+### `refresh()`
+
+```python
+server.refresh() -> dict
+```
+
+Forces a fresh fetch of the server's resource metrics from `GET /api/client/servers/{id}/resources`, caches the result in `self._cached_resources`, and returns it.
+
+**Returns** `dict` containing raw resource fields from the Pterodactyl API (`memory_bytes`, `cpu_absolute`, `disk_bytes`, `network_rx_bytes`, `network_tx_bytes`, `uptime`).
+
+---
+
+### `resources()`
+
+```python
+server.resources() -> dict
+```
+
+Returns the cached resource dict if available; otherwise calls `refresh()` first.
+
+**Returns** `dict` — same shape as `refresh()`.
+
+---
+
+### `getRAM()`
+
+```python
+server.getRAM(rounding: int = 2, gb: bool = False) -> float | None
+```
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round the result to.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="False">
+  When `True`, returns the value in gigabytes. When `False` (default), returns megabytes.
+</ParamField>
+
+**Returns** `float` — current RAM usage in MB (or GB if `gb=True`), or `None` if the metric is unavailable.
+
+---
+
+### `getCPU()`
+
+```python
+server.getCPU(rounding: int = 2) -> float | None
+```
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round the result to.
+</ParamField>
+
+**Returns** `float` — current CPU usage as an absolute percentage (e.g. `45.67`), or `None` if unavailable.
+
+---
+
+### `getDisk()`
+
+```python
+server.getDisk(rounding: int = 2, gb: bool = False) -> float | None
+```
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round the result to.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="False">
+  When `True`, returns the value in gigabytes. When `False`, returns megabytes.
+</ParamField>
+
+**Returns** `float` — current disk usage in MB or GB, or `None` if unavailable.
+
+---
+
+### `getNetworkIn()`
+
+```python
+server.getNetworkIn(rounding: int = 2, gb: bool = False) -> float | None
+```
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round the result to.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="False">
+  When `True`, returns the value in gigabytes. When `False`, returns megabytes.
+</ParamField>
+
+**Returns** `float` — cumulative inbound network usage in MB or GB, or `None` if unavailable.
+
+---
+
+### `getNetworkOut()`
+
+```python
+server.getNetworkOut(rounding: int = 2, gb: bool = False) -> float | None
+```
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places to round the result to.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="False">
+  When `True`, returns the value in gigabytes. When `False`, returns megabytes.
+</ParamField>
+
+**Returns** `float` — cumulative outbound network usage in MB or GB, or `None` if unavailable.
+
+---
+
+### `getUptime()`
+
+```python
+server.getUptime(formatted: bool = False) -> int | str | None
+```
+
+<ParamField path="formatted" type="bool" default="False">
+  When `False` (default), returns uptime as raw seconds. When `True`, returns a human-readable string such as `"2h 15m"`, `"45m 30s"`, or `"12s"`.
+</ParamField>
+
+**Returns** `int` (seconds) when `formatted=False`, `str` when `formatted=True`, or `None` if the server has not reported an uptime value.
+
+```python
+print(server.getUptime())          # 8130
+print(server.getUptime(True))      # "2h 15m"
+```
+
+---
+
+## Status
+
+### `getStatus()`
+
+```python
+server.getStatus() -> str
+```
+
+Fetches the server's current lifecycle state directly from the API (not the cache).
+
+**Returns** `str` — Pterodactyl state string, typically one of `"running"`, `"offline"`, `"starting"`, or `"stopping"`.
+
+---
+
+### `isOnline()`
+
+```python
+server.isOnline() -> bool
+```
+
+**Returns** `True` if `getStatus()` returns `"running"`, `False` otherwise.
+
+---
+
+### `isOffline()`
+
+```python
+server.isOffline() -> bool
+```
+
+**Returns** `True` if `getStatus()` returns `"offline"`, `False` otherwise.
+
+---
+
+## Power
+
+### `powerAction()`
+
+```python
+server.powerAction(action: str) -> tuple[int, str]
+```
+
+Sends a power signal to the server via `POST /api/client/servers/{id}/power`.
+
+<ParamField path="action" type="str" required>
+  The power signal to send. Must be one of `"start"`, `"stop"`, `"restart"`, or `"kill"`.
+</ParamField>
+
+**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+
+**Raises** `ValueError` if `action` is not one of the four valid values.
+
+---
+
+### `start()`
+
+```python
+server.start() -> tuple[int, str]
+```
+
+Shortcut for `powerAction("start")`. Sends the start signal to a stopped server.
+
+**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+
+---
+
+### `stop()`
+
+```python
+server.stop() -> tuple[int, str]
+```
+
+Shortcut for `powerAction("stop")`. Sends a graceful stop signal.
+
+**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+
+---
+
+### `restart()`
+
+```python
+server.restart() -> tuple[int, str]
+```
+
+Shortcut for `powerAction("restart")`. Sends a restart signal.
+
+**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+
+---
+
+### `kill()`
+
+```python
+server.kill() -> tuple[int, str]
+```
+
+Shortcut for `powerAction("kill")`. Immediately terminates the server process without a graceful shutdown.
+
+**Returns** `tuple[int, str]` — `(status_code, response_body)`.
+
+---
+
+## Files
+
+All file methods delegate to `panel.files` (`FileManagerAPI`).
+
+### `listFiles()`
+
+```python
+server.listFiles(directory: str = "/") -> requests.Response
+```
+
+<ParamField path="directory" type="str" default="/">
+  Server-relative directory path to list, e.g. `"/plugins"`.
+</ParamField>
+
+**Returns** `requests.Response` from `GET /api/client/servers/{id}/files/list`.
+
+---
+
+### `downloadFile()`
+
+```python
+server.downloadFile(path: str) -> requests.Response
+```
+
+<ParamField path="path" type="str" required>
+  Server-relative path to the file, e.g. `"/server.properties"`.
+</ParamField>
+
+**Returns** `requests.Response` containing a signed download URL.
+
+---
+
+### `uploadFile()`
+
+```python
+server.uploadFile(directory: str, file_data) -> requests.Response
+```
+
+<ParamField path="directory" type="str" required>
+  Destination directory on the server, e.g. `"/plugins"`.
+</ParamField>
+
+<ParamField path="file_data" type="dict" required>
+  A `files` dict suitable for `requests` multipart upload, e.g. `{"files": ("name.jar", open(..., "rb"))}`.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `deleteFiles()`
+
+```python
+server.deleteFiles(root: str, files) -> requests.Response
+```
+
+<ParamField path="root" type="str" required>
+  Root directory for the operation.
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  List of filenames (relative to `root`) to delete.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `renameFiles()`
+
+```python
+server.renameFiles(root: str, files) -> requests.Response
+```
+
+<ParamField path="root" type="str" required>
+  Root directory for the operation.
+</ParamField>
+
+<ParamField path="files" type="list[dict]" required>
+  List of rename objects with `"from"` and `"to"` keys.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `copyFiles()`
+
+```python
+server.copyFiles(root: str, files) -> requests.Response
+```
+
+<ParamField path="root" type="str" required>
+  Root directory for the operation.
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  List of file paths to copy.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `moveFiles()`
+
+```python
+server.moveFiles(root: str, files) -> requests.Response
+```
+
+<ParamField path="root" type="str" required>
+  Root directory for the operation.
+</ParamField>
+
+<ParamField path="files" type="list[dict]" required>
+  List of move objects with `"from"` and `"to"` keys.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `createFolder()`
+
+```python
+server.createFolder(directory: str, name: str) -> requests.Response
+```
+
+<ParamField path="directory" type="str" required>
+  Parent directory in which to create the new folder.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Name of the new folder.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `compress()`
+
+```python
+server.compress(root: str, files) -> requests.Response
+```
+
+<ParamField path="root" type="str" required>
+  Root directory for the operation.
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  List of file or directory names (relative to `root`) to include in the archive.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `decompress()`
+
+```python
+server.decompress(file_path: str) -> requests.Response
+```
+
+<ParamField path="file_path" type="str" required>
+  Server-relative path to the archive to decompress.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+## Backups
+
+### `listBackups()`
+
+```python
+server.listBackups() -> requests.Response
+```
+
+**Returns** `requests.Response` containing the list of all backups for this server.
+
+---
+
+### `createBackup()`
+
+```python
+server.createBackup(name: str) -> requests.Response
+```
+
+<ParamField path="name" type="str" required>
+  Display name for the new backup.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `deleteBackup()`
+
+```python
+server.deleteBackup(backup_id: int) -> requests.Response
+```
+
+<ParamField path="backup_id" type="int" required>
+  Numeric ID of the backup to delete.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `downloadBackup()`
+
+```python
+server.downloadBackup(backup_id: int) -> requests.Response
+```
+
+<ParamField path="backup_id" type="int" required>
+  Numeric ID of the backup to download.
+</ParamField>
+
+**Returns** `requests.Response` containing a signed download URL.
+
+---
+
+## Databases
+
+### `listDatabases()`
+
+```python
+server.listDatabases() -> requests.Response
+```
+
+**Returns** `requests.Response` containing all databases attached to this server.
+
+---
+
+### `createDatabase()`
+
+```python
+server.createDatabase(name: str, remote: str = "%", host=None) -> requests.Response
+```
+
+<ParamField path="name" type="str" required>
+  Name for the new database.
+</ParamField>
+
+<ParamField path="remote" type="str" default="%">
+  Remote host pattern that is allowed to connect. Defaults to `"%"` (any host).
+</ParamField>
+
+<ParamField path="host" type="str | None" default="None">
+  Optional database host override. When `None`, the panel's default database host is used.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `rotateDatabasePassword()`
+
+```python
+server.rotateDatabasePassword(db_id: str) -> requests.Response
+```
+
+<ParamField path="db_id" type="str" required>
+  The database identifier string as returned by `listDatabases()`.
+</ParamField>
+
+**Returns** `requests.Response` containing the new password.
+
+---
+
+### `deleteDatabase()`
+
+```python
+server.deleteDatabase(db_id: str) -> requests.Response
+```
+
+<ParamField path="db_id" type="str" required>
+  The database identifier string to delete.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+## Startup
+
+### `getStartupVariables()`
+
+```python
+server.getStartupVariables() -> requests.Response
+```
+
+**Returns** `requests.Response` containing all startup environment variables defined for this server.
+
+---
+
+### `updateStartupVariable()`
+
+```python
+server.updateStartupVariable(key: str, value: str) -> requests.Response
+```
+
+<ParamField path="key" type="str" required>
+  The environment variable name, e.g. `"SERVER_JARFILE"`.
+</ParamField>
+
+<ParamField path="value" type="str" required>
+  The new value to set.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+## Schedules
+
+### `listSchedules()`
+
+```python
+server.listSchedules() -> requests.Response
+```
+
+**Returns** `requests.Response` containing all schedules for this server.
+
+---
+
+### `createSchedule()`
+
+```python
+server.createSchedule(payload: dict) -> requests.Response
+```
+
+<ParamField path="payload" type="dict" required>
+  Schedule creation payload as expected by the Pterodactyl API, including cron fields (`minute`, `hour`, `day_of_month`, `month`, `day_of_week`) and optionally `name`, `is_active`, and `only_when_online`.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `updateSchedule()`
+
+```python
+server.updateSchedule(schedule_id: str, payload: dict) -> requests.Response
+```
+
+<ParamField path="schedule_id" type="str" required>
+  The schedule identifier to update.
+</ParamField>
+
+<ParamField path="payload" type="dict" required>
+  Dict of fields to update on the schedule.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `deleteSchedule()`
+
+```python
+server.deleteSchedule(schedule_id: str) -> requests.Response
+```
+
+<ParamField path="schedule_id" type="str" required>
+  The schedule identifier to delete.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `runSchedule()`
+
+```python
+server.runSchedule(schedule_id: str) -> requests.Response
+```
+
+Immediately triggers a schedule regardless of its cron timing.
+
+<ParamField path="schedule_id" type="str" required>
+  The schedule identifier to run.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `enableSchedule()`
+
+```python
+server.enableSchedule(schedule_id: str) -> requests.Response
+```
+
+Convenience method that calls `updateSchedule(schedule_id, {"is_active": True})`.
+
+<ParamField path="schedule_id" type="str" required>
+  The schedule identifier to enable.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `disableSchedule()`
+
+```python
+server.disableSchedule(schedule_id: str) -> requests.Response
+```
+
+Convenience method that calls `updateSchedule(schedule_id, {"is_active": False})`.
+
+<ParamField path="schedule_id" type="str" required>
+  The schedule identifier to disable.
+</ParamField>
+
+**Returns** `requests.Response`.
+
+---
+
+### `getSchedule()`
+
+```python
+server.getSchedule(schedule_id: int) -> dict | None
+```
+
+Fetches the full schedule list and returns the matching schedule as a normalised dict. Returns `None` if no schedule with the given ID is found.
+
+<ParamField path="schedule_id" type="int" required>
+  Numeric ID of the schedule to retrieve.
+</ParamField>
+
+**Returns** `dict | None` with the following keys:
+
+<ResponseField name="id" type="int">
+  Numeric schedule identifier.
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Display name of the schedule.
+</ResponseField>
+
+<ResponseField name="description" type="str">
+  Optional description set on the schedule.
+</ResponseField>
+
+<ResponseField name="is_active" type="bool">
+  Whether the schedule is currently enabled.
+</ResponseField>
+
+<ResponseField name="cron" type="dict">
+  Raw cron object from the API.
+</ResponseField>
+
+<ResponseField name="minute" type="str">
+  Cron minute field, e.g. `"*/5"`.
+</ResponseField>
+
+<ResponseField name="hour" type="str">
+  Cron hour field, e.g. `"*"`.
+</ResponseField>
+
+<ResponseField name="day_of_month" type="str">
+  Cron day-of-month field.
+</ResponseField>
+
+<ResponseField name="month" type="str">
+  Cron month field.
+</ResponseField>
+
+<ResponseField name="day_of_week" type="str">
+  Cron day-of-week field.
+</ResponseField>
+
+<ResponseField name="next_run_at" type="str">
+  ISO 8601 timestamp for the next scheduled run.
+</ResponseField>
+
+<ResponseField name="last_run_at" type="str">
+  ISO 8601 timestamp of the most recent run, or `null` if never run.
+</ResponseField>
+
+<ResponseField name="only_when_online" type="bool">
+  When `true`, the schedule only runs while the server is in the `running` state.
+</ResponseField>
+
+<ResponseField name="is_processing" type="bool">
+  Whether the schedule is currently executing.
+</ResponseField>
+
+<ResponseField name="created_at" type="str">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="str">
+  ISO 8601 last-updated timestamp.
+</ResponseField>
+
+<ResponseField name="tasks" type="list">
+  List of task objects belonging to this schedule, sourced from the `relationships.tasks.data` array in the Pterodactyl response.
+</ResponseField>
+
+```python
+sched = server.getSchedule(3)
+if sched:
+    print(sched["name"], sched["next_run_at"])
+```

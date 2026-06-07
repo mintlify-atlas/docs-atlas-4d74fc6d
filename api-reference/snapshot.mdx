@@ -1,0 +1,155 @@
+---
+title: "Snapshot — Server Resource Capture Reference"
+sidebarTitle: "Snapshot"
+description: "Complete reference for the Snapshot class: constructor parameters, instance attributes, smoothing behavior, and support for both GenericServer and MinecraftServer."
+---
+
+`Snapshot` captures a point-in-time (or time-averaged) view of a server's resource metrics into a plain Python object. Pass a `GenericServer` or `MinecraftServer` to the constructor and read off `ram`, `cpu`, `network_in`, `network_out`, `uptime`, and — for Minecraft servers — `tps` and `players`. When `duration > 0`, the constructor blocks while collecting multiple samples and returns their mean, optionally trimming outliers first.
+
+```python
+from hungerlib.utils.utils import Snapshot
+
+# Instant snapshot
+snap = Snapshot(mc_server)
+print(snap)
+
+# Smoothed snapshot: sample for 5 s at 0.5 s intervals, drop 1 outlier per metric
+snap = Snapshot(mc_server, duration=5.0, interval=0.5, drop_outliers=1)
+print(f"Smoothed RAM: {snap.ram} MB  TPS: {snap.tps}")
+```
+
+---
+
+## Constructor
+
+```python
+Snapshot(
+    Server,
+    rounding: int = 2,
+    duration: float = 0.0,
+    interval: float = 0.5,
+    drop_outliers: int = 0,
+    gb: bool = False,
+)
+```
+
+<ParamField path="Server" type="GenericServer | MinecraftServer" required>
+  The server object to sample. Any object that implements `getRAM()`, `getCPU()`, `getNetworkIn()`, `getNetworkOut()`, and `getUptime()` is accepted. If the object also exposes `getTPS()` and `getPlayers()` (i.e. a `MinecraftServer`), those metrics are captured too.
+</ParamField>
+
+<ParamField path="rounding" type="int" default="2">
+  Number of decimal places passed to `getRAM()`, `getNetworkIn()`, and `getNetworkOut()`. Does not affect `cpu`, `tps`, or `players`.
+</ParamField>
+
+<ParamField path="duration" type="float" default="0.0">
+  Total sampling window in seconds. When `0.0` (default), a single instantaneous reading is taken and the constructor returns immediately. When `> 0`, the constructor blocks and collects samples at `interval`-second intervals until `duration` seconds have elapsed, then averages the results.
+</ParamField>
+
+<ParamField path="interval" type="float" default="0.5">
+  Delay in seconds between samples when `duration > 0`. A value of `0.5` collects two samples per second. Has no effect when `duration == 0`.
+</ParamField>
+
+<ParamField path="drop_outliers" type="int" default="0">
+  Number of extreme samples (lowest and highest) to remove per metric before computing the mean. For example, `drop_outliers=1` sorts the sample list, drops the single lowest and single highest value, then averages the remainder. Has no effect when `duration == 0` or when there are not enough samples remaining after trimming.
+</ParamField>
+
+<ParamField path="gb" type="bool" default="False">
+  When `True`, RAM and network metrics are collected in gigabytes. When `False` (default), they are collected in megabytes.
+</ParamField>
+
+---
+
+## Instance Attributes
+
+After construction, the following attributes are available on the snapshot object. All floating-point values reflect the `rounding` and `gb` settings passed to the constructor.
+
+<ResponseField name="ram" type="float | None">
+  RAM usage in MB (or GB when `gb=True`). `None` if the server did not report a value. For smoothed snapshots, this is the mean of all collected samples after outlier trimming.
+</ResponseField>
+
+<ResponseField name="cpu" type="float | None">
+  CPU usage as an absolute percentage (e.g. `45.67`). `None` if unavailable. Mean for smoothed snapshots.
+</ResponseField>
+
+<ResponseField name="network_in" type="float | None">
+  Cumulative inbound network usage in MB or GB. `None` if unavailable. Mean for smoothed snapshots.
+</ResponseField>
+
+<ResponseField name="network_out" type="float | None">
+  Cumulative outbound network usage in MB or GB. `None` if unavailable. Mean for smoothed snapshots.
+</ResponseField>
+
+<ResponseField name="tps" type="float | None">
+  Current TPS (ticks per second) from HungerBridge. **Only present on `MinecraftServer` snapshots.** `None` for `GenericServer` instances (which lack `getTPS()`), or if the bridge is unreachable. Mean for smoothed snapshots.
+</ResponseField>
+
+<ResponseField name="players" type="int | float | None">
+  Number of online players from HungerBridge. **Only present on `MinecraftServer` snapshots.** `None` for `GenericServer` instances. For smoothed snapshots, this is the mean of sampled counts (may be a float).
+</ResponseField>
+
+<ResponseField name="uptime" type="int | None">
+  Server uptime in seconds at the time of snapshot construction. Captured once — **not** smoothed even when `duration > 0`.
+</ResponseField>
+
+<ResponseField name="uptime_formatted" type="str | None">
+  Human-readable uptime string, e.g. `"2h 15m"`, `"45m 30s"`, or `"12s"`. Captured once alongside `uptime`.
+</ResponseField>
+
+---
+
+## Smoothing Behaviour
+
+When `duration > 0`, the constructor enters a sampling loop:
+
+1. On each iteration it calls `getRAM()`, `getCPU()`, `getNetworkIn()`, `getNetworkOut()`, and (if available) `getTPS()` and `getPlayers()`.
+2. It sleeps for `interval` seconds, then repeats until `time.time()` exceeds the start time plus `duration`.
+3. After sampling, each metric's list is sorted. If `drop_outliers > 0`, the `N` lowest and `N` highest values are removed.
+4. The remaining values are averaged with `statistics.mean()`.
+
+This is especially useful for smoothing CPU and TPS spikes caused by garbage collection or chunk loading:
+
+```python
+# Sample for 10 seconds, 4 samples/sec, trim 2 outliers per metric
+snap = Snapshot(mc_server, duration=10.0, interval=0.25, drop_outliers=2)
+```
+
+`uptime` and `uptime_formatted` are always captured exactly once at the end of the sampling window, not averaged.
+
+---
+
+## `__str__`
+
+`Snapshot.__str__()` returns a multi-line human-readable summary:
+
+```
+Server: survival
+Uptime: 2h 15m
+RAM: 3521.48
+CPU: 42.17
+Network (in): 128.34
+Network (out): 64.12
+TPS: 19.982
+Online players: 7
+```
+
+The `TPS` and `Online players` lines are only included when those attributes are not `None` (i.e. for `MinecraftServer` snapshots).
+
+```python
+snap = Snapshot(mc_server, duration=3.0)
+print(snap)
+```
+
+---
+
+## GenericServer vs MinecraftServer
+
+| Attribute | GenericServer | MinecraftServer |
+|---|---|---|
+| `ram` | ✅ | ✅ |
+| `cpu` | ✅ | ✅ |
+| `network_in` | ✅ | ✅ |
+| `network_out` | ✅ | ✅ |
+| `uptime` | ✅ | ✅ |
+| `uptime_formatted` | ✅ | ✅ |
+| `tps` | `None` | ✅ (requires HungerBridge) |
+| `players` | `None` | ✅ (requires HungerBridge) |

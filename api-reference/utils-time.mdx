@@ -1,0 +1,233 @@
+---
+title: "Scheduling Utilities — snapSchedule, runCountdownEvents, and More"
+sidebarTitle: "Scheduling Utils"
+description: "Reference for HungerLib scheduling utilities: snapSchedule, runCountdownEvents, waitForOnline, waitForOffline, secsUntil, and minsUntil."
+---
+
+HungerLib ships a set of time and scheduling utilities designed for common automation patterns around Pterodactyl servers — scheduling restarts at clean clock boundaries, running announcements during a countdown, and waiting for a server to reach a specific power state. All functions are importable directly from `hungerlib`.
+
+```python
+from hungerlib import snapSchedule, runCountdownEvents, waitForOnline, waitForOffline, secsUntil, minsUntil
+```
+
+---
+
+## `snapSchedule`
+
+Calculates the next clean restart time by snapping a minimum lead time forward to the nearest preferred minute mark within the hour. This is useful for scheduling restarts at predictable times (e.g. always at `:00` or `:30`) rather than at arbitrary offsets from the current moment.
+
+```python
+snapSchedule(minimumMinutes=30, snapMinutes=(0, 30)) -> dict
+```
+
+<ParamField path="minimumMinutes" type="int" default="30">
+  The minimum number of minutes from now before the restart can be scheduled. The function adds this to `datetime.now()` to produce a minimum candidate time.
+</ParamField>
+
+<ParamField path="snapMinutes" type="tuple[int, int]" default="(0, 30)">
+  A tuple of minute values within the hour to snap to, in ascending order. The function selects the first snap minute that is strictly greater than the minute of the minimum candidate time. If no snap minute qualifies in the current hour, it snaps to `:00` of the next hour.
+</ParamField>
+
+**Returns:** `dict` — a dictionary with four keys:
+
+<ResponseField name="now" type="datetime">
+  The current time at the moment `snapSchedule` was called.
+</ResponseField>
+
+<ResponseField name="minimum" type="datetime">
+  `now + timedelta(minutes=minimumMinutes)` — the earliest acceptable restart time.
+</ResponseField>
+
+<ResponseField name="scheduled" type="datetime">
+  The snapped `datetime` object representing the calculated restart time, with seconds and microseconds zeroed out.
+</ResponseField>
+
+<ResponseField name="formatted" type="str">
+  The scheduled time formatted as a 12-hour clock string (e.g. `"04:30 PM"`), suitable for announcement messages.
+</ResponseField>
+
+```python
+from hungerlib import snapSchedule
+
+result = snapSchedule(minimumMinutes=20, snapMinutes=(0, 30))
+print(f"Restart scheduled for: {result['formatted']}")
+print(f"That's in {(result['scheduled'] - result['now']).seconds // 60} minutes")
+```
+
+**Snap logic example:** If it is currently 3:18 PM and `minimumMinutes=20`, the minimum candidate is 3:38 PM. With `snapMinutes=(0, 30)`, neither `:00` nor `:30` is greater than `:38`, so the function snaps to 4:00 PM (the top of the next hour).
+
+---
+
+## `runCountdownEvents`
+
+Blocks the current thread until `target_time` is reached, firing registered callback functions at specified minute and second marks during the countdown. This is the primary mechanism for running pre-restart announcements.
+
+```python
+runCountdownEvents(
+    target_time,
+    minute_callbacks=None,
+    second_callbacks=None,
+    tick_interval=1
+)
+```
+
+<ParamField path="target_time" type="datetime" required>
+  The `datetime` object representing when the countdown ends. The function returns immediately when `datetime.now() >= target_time`.
+</ParamField>
+
+<ParamField path="minute_callbacks" type="dict | None" default="None">
+  A dictionary mapping integer minute counts (minutes remaining) to zero-argument callables. Each callable fires exactly once when the remaining time crosses the corresponding minute threshold. For example, `{5: my_func}` calls `my_func()` when 5 minutes remain.
+</ParamField>
+
+<ParamField path="second_callbacks" type="dict | None" default="None">
+  A dictionary mapping integer second counts (seconds remaining) to zero-argument callables. Fires exactly once per registered threshold. For example, `{30: my_func}` calls `my_func()` when 30 seconds remain.
+</ParamField>
+
+<ParamField path="tick_interval" type="int" default="1">
+  The polling interval in seconds between each iteration of the countdown loop. Lower values improve callback timing precision at the cost of more CPU wakeups. Defaults to `1`.
+</ParamField>
+
+**Returns:** `None` — the function blocks until the countdown completes and then returns.
+
+```python
+from hungerlib import snapSchedule, runCountdownEvents
+
+result = snapSchedule(minimumMinutes=30)
+target = result["scheduled"]
+
+def announce(msg):
+    return lambda: print(msg)
+
+runCountdownEvents(
+    target,
+    minute_callbacks={
+        10: announce("Server restarting in 10 minutes!"),
+        5:  announce("Server restarting in 5 minutes!"),
+        1:  announce("Server restarting in 1 minute!"),
+    },
+    second_callbacks={
+        30: announce("Server restarting in 30 seconds!"),
+        10: announce("Server restarting in 10 seconds!"),
+    }
+)
+
+print("Countdown finished — initiating restart.")
+```
+
+---
+
+## `waitForOnline`
+
+Polls a server's power state at a regular interval until it reports as online, or until a timeout is reached. Useful for pausing automation after triggering a server start.
+
+```python
+waitForOnline(server, timeout=60, interval=2) -> bool
+```
+
+<ParamField path="server" type="Server" required>
+  A `GenericServer` (or `MinecraftServer`) instance. The function calls `server.isOnline()` on each tick.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="60">
+  The maximum number of seconds to wait before giving up. If the server has not come online within this window, the function returns `False`.
+</ParamField>
+
+<ParamField path="interval" type="int" default="2">
+  The number of seconds to sleep between each status check.
+</ParamField>
+
+**Returns:** `bool` — `True` if the server came online within the timeout window, `False` if the timeout was reached.
+
+```python
+from hungerlib import waitForOnline
+
+server.start()
+came_online = waitForOnline(server, timeout=120, interval=3)
+
+if came_online:
+    print("Server is online!")
+else:
+    print("Timed out waiting for server to start.")
+```
+
+---
+
+## `waitForOffline`
+
+Polls a server's power state until it reports as offline, or until a timeout is reached. Useful for confirming a clean shutdown before performing further actions such as file operations or backups.
+
+```python
+waitForOffline(server, timeout=60, interval=2) -> bool
+```
+
+<ParamField path="server" type="Server" required>
+  A `GenericServer` (or `MinecraftServer`) instance. The function calls `server.isOffline()` on each tick.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="60">
+  The maximum number of seconds to wait. Returns `False` if the server has not gone offline within this window.
+</ParamField>
+
+<ParamField path="interval" type="int" default="2">
+  The number of seconds to sleep between each status check.
+</ParamField>
+
+**Returns:** `bool` — `True` if the server went offline within the timeout, `False` otherwise.
+
+```python
+from hungerlib import waitForOffline
+
+server.stop()
+went_offline = waitForOffline(server, timeout=90, interval=2)
+
+if went_offline:
+    panel.backups.create(server.server_id, name="Post-shutdown Backup")
+else:
+    print("Warning: server did not shut down cleanly within timeout.")
+```
+
+---
+
+## `secsUntil`
+
+Returns the number of whole seconds between now and a target `datetime`.
+
+```python
+secsUntil(target: datetime) -> int
+```
+
+<ParamField path="target" type="datetime" required>
+  The future `datetime` to measure against. The result is truncated (not rounded) to an integer via `int()`.
+</ParamField>
+
+**Returns:** `int` — seconds remaining until `target`. Returns a negative number if `target` is in the past.
+
+```python
+from hungerlib import secsUntil, snapSchedule
+
+result = snapSchedule()
+print(f"{secsUntil(result['scheduled'])} seconds until restart")
+```
+
+---
+
+## `minsUntil`
+
+Returns the number of whole minutes between now and a target `datetime` by integer-dividing the total seconds by 60.
+
+```python
+minsUntil(target: datetime) -> int
+```
+
+<ParamField path="target" type="datetime" required>
+  The future `datetime` to measure against. Fractional minutes are truncated.
+</ParamField>
+
+**Returns:** `int` — whole minutes remaining until `target`. Returns a negative number if `target` is in the past.
+
+```python
+from hungerlib import minsUntil, snapSchedule
+
+result = snapSchedule()
+print(f"{minsUntil(result['scheduled'])} minutes until restart")
+```

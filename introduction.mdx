@@ -1,0 +1,75 @@
+---
+title: "HungerLib: Python Automation for Pterodactyl Panels"
+sidebarTitle: "Introduction"
+description: "HungerLib provides a high-level Python API for Pterodactyl panel automation — covering server control, file management, scheduling, RCON, and structured logging."
+---
+
+HungerLib is a Python automation library purpose-built for [Pterodactyl](https://pterodactyl.io/) game server panels. Rather than hand-rolling HTTP calls against the Pterodactyl Client API, you import clean Python classes that handle authentication, resource polling, power actions, file management, backups, scheduling, and more. Whether you are building a Discord bot that restarts servers on a schedule, a monitoring dashboard that tracks TPS and RAM, or a deployment script that configures a fresh Minecraft node, HungerLib gives you the building blocks so you can focus on your automation logic instead of raw API plumbing.
+
+## Core Components
+
+HungerLib is composed of several focused modules that work together:
+
+| Component | Description |
+|---|---|
+| **`Panel`** | The root connection object. Holds your panel URL and API key, exposes `ping()` / `validateAPI()` health checks, and owns sub-API modules for schedules, files, backups, databases, startup variables, and commands. |
+| **`GenericServer`** | A universal server wrapper for any Pterodactyl egg. Exposes power actions (`start`, `stop`, `restart`, `kill`), real-time resource metrics (`getRAM`, `getCPU`, `getDisk`, `getUptime`), file management, backup management, database management, and schedule management — all scoped to a single server ID. |
+| **`MinecraftServer`** | Extends `GenericServer` with Minecraft-specific features backed by a running HungerBridge sidecar: live TPS (`getTPS`), online player count/list (`getPlayers`), console command execution (`sendConsoleCommand`), and in-game broadcasts (`sendBroadcast`). |
+| **`BridgeClient`** | Low-level HTTP client for the HungerBridge v2 REST API. Used internally by `MinecraftServer` but also accessible directly for custom integrations — supports `runCommand`, `log`, `getTPS`, `getPlayers`, `getPing`, `getVersion`, and more. |
+| **`MessageRouter`** | Structured logging and message routing across multiple servers simultaneously. Routes messages to the terminal (with ASCII color), to each server's console via HungerBridge, to in-game broadcasts via `tellraw`, and to rotating log files — all with configurable color-map transforms. |
+| **`Validator`** | Configuration validation engine. Checks config dataclass fields against rules (`required`, `recommended`, `optional`), detects type mismatches, reports fallback usage, and raises typed exceptions (`FatalError`, `TypeMismatchError`, `FallbackError`, `RecommendedError`) for precise error handling. |
+| **`Snapshot`** | Resource snapshot helper. Captures an instant or time-averaged sample of RAM, CPU, network, disk, TPS, and player count for a given server. Supports smoothing via configurable `duration`, `interval`, and `drop_outliers`. |
+
+## Requirements
+
+- **Python 3.9 or higher** (3.10, 3.11, and 3.12 are tested and supported)
+- A running Pterodactyl panel with a valid **Client API key**
+- For `MinecraftServer` and `BridgeClient`: a running [HungerBridge](https://github.com/iFamishedX) sidecar on the target server
+
+### Install
+
+```bash
+pip install hungerlib
+```
+
+HungerLib pulls in four runtime dependencies automatically:
+
+| Package | Purpose |
+|---|---|
+| `requests` | HTTP client for all Pterodactyl and HungerBridge API calls |
+| `mcrcon` | RCON protocol support |
+| `PyYAML` | YAML configuration file parsing |
+| `mapres` | Color-map resolution used by `MessageRouter` |
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Panel" icon="server" href="/guides/panel">
+    Connect to any Pterodactyl panel. Manage schedules, files, backups, databases, and startup variables through a single authenticated object.
+  </Card>
+  <Card title="Servers" icon="gamepad" href="/guides/servers">
+    Control any Pterodactyl server with `GenericServer`. Use `MinecraftServer` for TPS, player lists, and in-game commands.
+  </Card>
+  <Card title="HungerBridge" icon="bridge" href="/guides/bridge">
+    Real-time Minecraft server introspection via the HungerBridge v2 sidecar API — TPS, players, commands, and console logging.
+  </Card>
+  <Card title="Scheduler" icon="clock" href="/guides/scheduler">
+    Snap to cron-aligned schedules, run countdown event chains, and wait for servers to come online or go offline.
+  </Card>
+  <Card title="MessageRouter" icon="route" href="/guides/message-router">
+    Route structured log messages simultaneously to your terminal, server consoles, in-game broadcasts, and rotating log files.
+  </Card>
+  <Card title="Validator" icon="check" href="/guides/validator">
+    Enforce required config fields, detect type mismatches, and surface fallback usage at startup before your automation runs.
+  </Card>
+</CardGroup>
+
+## License
+
+<Note>
+  HungerLib's `pyproject.toml` declares an **MIT** license and the package is distributed under MIT on PyPI. The [GitHub repository](https://github.com/iFamishedX/HungerLib) may carry a **GPL-3.0** header in some source files. Review the repository directly if your project has specific licensing requirements.
+</Note>
+
+<Tip>
+  New to HungerLib? Head to the [Quickstart](/quickstart) to connect to a panel and poll live server metrics in under five minutes.
+</Tip>

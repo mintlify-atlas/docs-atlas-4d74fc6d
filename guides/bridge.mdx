@@ -1,0 +1,255 @@
+---
+title: "Interact with HungerBridge Using BridgeClient"
+sidebarTitle: "HungerBridge"
+description: "BridgeClient is HungerLib's Python client for the HungerBridge v2 REST API, enabling command execution, logging, TPS monitoring, and player queries on Minecraft servers."
+---
+
+HungerBridge is a lightweight HTTP agent that runs inside a Minecraft server process and exposes a REST API for automation. `BridgeClient` is HungerLib's Python client for that API — it handles authentication, request routing, and response parsing so you can query player counts, read TPS metrics, run console commands, and write log entries with simple method calls. If you are using `MinecraftServer`, a `BridgeClient` is constructed and held internally; you only need to use `BridgeClient` directly when building lower-level tooling or working without the panel layer.
+
+<Note>
+  `BridgeClient` communicates with a **separate HungerBridge agent** running inside your Minecraft server, not the Pterodactyl panel. The bridge must be installed, configured, and reachable on its own port before any `BridgeClient` calls will succeed.
+</Note>
+
+## Constructor
+
+```python
+from hungerlib import BridgeClient
+
+bridge = BridgeClient(
+    url="http://mc.example.com:8080",
+    token="my-bridge-secret",
+)
+```
+
+<ParamField path="url" type="str" required>
+  The base URL of the HungerBridge agent, including protocol and port — for example `http://mc.example.com:8080`. Any trailing slash is stripped automatically. All requests are sent to `<url>/v2/<endpoint>`.
+</ParamField>
+
+<ParamField path="token" type="str" required>
+  The authentication token for this HungerBridge instance. It is sent as the `X-Auth-Key` header on every request. This value must match the token configured in HungerBridge's server-side settings.
+</ParamField>
+
+---
+
+## Connection & Info
+
+### Raw Endpoints
+
+These methods map one-to-one onto the HungerBridge v2 REST endpoints and return the raw parsed JSON response. Use them when you need the full response payload; the convenience getters below extract individual fields for you.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `v2_ping()` | `GET /v2/ping` | Liveness probe — confirms the bridge process is running |
+| `v2_info()` | `GET /v2/info` | Bridge and server metadata (version, platform, Minecraft version) |
+| `v2_status()` | `GET /v2/status` | Connection health check, returns `{"ok": true/false}` |
+
+### Convenience Getters
+
+#### `getPing() -> int`
+
+Measures the round-trip latency to the HungerBridge agent in milliseconds, timed client-side.
+
+```python
+print(bridge.getPing())   # 12
+```
+
+#### `getVersion() -> str | None`
+
+Returns the HungerBridge software version string, extracted from the `/v2/info` response.
+
+```python
+print(bridge.getVersion())   # "2.1.0"
+```
+
+#### `getPlatform() -> str | None`
+
+Returns the Minecraft server platform as reported by HungerBridge (e.g. `"Paper"`, `"Spigot"`).
+
+```python
+print(bridge.getPlatform())   # "Paper"
+```
+
+#### `getMinecraftVersion() -> str | None`
+
+Returns the Minecraft game version the server is running.
+
+```python
+print(bridge.getMinecraftVersion())   # "1.21.1"
+```
+
+#### `getStatus() -> bool`
+
+Returns `True` when HungerBridge reports a healthy connection status, `False` otherwise. Prefer this over `v2_ping()` when you need a simple boolean health check.
+
+```python
+if not bridge.getStatus():
+    raise RuntimeError("HungerBridge is not healthy")
+```
+
+---
+
+## Commands & Logging
+
+### `runCommand(command, show_console=False, silent=False, normalize=True)`
+
+Executes a console command on the Minecraft server and returns its output.
+
+<ParamField path="command" type="str" required>
+  The console command to run. Do not include a leading `/` — bridge commands are issued as console commands, not player commands.
+</ParamField>
+
+<ParamField path="show_console" type="bool">
+  When `True`, the server echoes the command output to its own console in addition to returning it to the caller. Defaults to `False`.
+</ParamField>
+
+<ParamField path="silent" type="bool">
+  When `True`, suppresses server-side console output for the command entirely. Defaults to `False`.
+</ParamField>
+
+<ParamField path="normalize" type="bool">
+  When `True` (default), the method joins the `output` array from the bridge response into a single newline-delimited string, making it easy to `print()` or log. Set to `False` to receive the raw response dict from the bridge.
+</ParamField>
+
+```python
+# Returns a newline-joined string of output lines
+output = bridge.runCommand("list")
+print(output)
+# There are 3 of a max of 20 players online: Alice, Bob, Charlie
+
+# Get the raw response dict
+raw = bridge.runCommand("list", normalize=False)
+print(raw)
+# {'output': ['There are 3 of a max of 20 players online: Alice, Bob, Charlie']}
+```
+
+### `log(message, level='info') -> dict`
+
+Writes a message to the Minecraft server console log with an optional severity prefix.
+
+<ParamField path="message" type="str" required>
+  The message string to write to the server log.
+</ParamField>
+
+<ParamField path="level" type="str">
+  Log severity prefix. Valid values are `'info'`, `'warn'`, `'error'`, or `None`. Passing `None` omits the level prefix entirely. Any other value raises `InvalidLevelError`.
+</ParamField>
+
+```python
+bridge.log("Deployment complete", level="info")
+bridge.log("Low TPS detected", level="warn")
+bridge.log("Connection pool exhausted", level="error")
+bridge.log("--- separator ---", level=None)  # no prefix
+```
+
+---
+
+## Server Metrics
+
+### `getTPS(mode='current') -> float`
+
+Fetches TPS (ticks per second) data from HungerBridge. The server tracks TPS using several exponential moving averages for different time windows.
+
+| `mode` | Field | Description |
+|--------|-------|-------------|
+| `'current'` | `tps` | EMA20 — the instantaneous TPS reading, smoothed over 20 ticks |
+| `'1m'` | `tps_1m` | EMA1200 — rolling average over approximately one minute |
+| `'5m'` | `tps_5m` | EMA6000 — rolling average over approximately five minutes |
+| `'tick_time'` | `tick_time_ms` | Average server tick duration in milliseconds |
+
+Raises `InvalidModeError` for any value outside the table above.
+
+```python
+print(bridge.getTPS())              # 19.98   (EMA20)
+print(bridge.getTPS('1m'))          # 19.95   (1-minute avg)
+print(bridge.getTPS('5m'))          # 19.91   (5-minute avg)
+print(bridge.getTPS('tick_time'))   # 50.21   (ms per tick)
+```
+
+### `getPlayers(mode='count') -> int | list`
+
+Queries the HungerBridge player endpoint.
+
+| `mode` | Returns | Description |
+|--------|---------|-------------|
+| `'count'` | `int` | Number of players currently online |
+| `'list'` | `list[str]` | List of online player name strings |
+
+Raises `InvalidModeError` for any other value.
+
+```python
+print(bridge.getPlayers())          # 7
+print(bridge.getPlayers('list'))    # ['Alice', 'Bob', 'Charlie']
+```
+
+---
+
+## Exceptions
+
+HungerLib defines three exception types that `BridgeClient` may raise. Import them from `hungerlib.utils.exceptions` or catch the base class `Exception`.
+
+<CardGroup cols={3}>
+  <Card title="HungerBridgeError" icon="circle-exclamation">
+    Raised whenever the bridge returns a non-2xx HTTP status code. The message includes the status code and response body for debugging.
+  </Card>
+  <Card title="InvalidLevelError" icon="triangle-exclamation">
+    Raised by `log()` when the `level` argument is not one of `'info'`, `'warn'`, `'error'`, or `None`.
+  </Card>
+  <Card title="InvalidModeError" icon="ban">
+    Raised by `getTPS()` and `getPlayers()` when an unrecognised `mode` string is passed.
+  </Card>
+</CardGroup>
+
+```python
+from hungerlib.utils.exceptions import HungerBridgeError, InvalidLevelError, InvalidModeError
+
+try:
+    bridge.log("test", level="debug")   # invalid level
+except InvalidLevelError as e:
+    print(e)  # 'debug' is not a valid log level
+
+try:
+    bridge.getTPS("15m")                # invalid mode
+except InvalidModeError as e:
+    print(e)  # Invalid mode: '15m'
+
+try:
+    bridge.runCommand("say hi")
+except HungerBridgeError as e:
+    print(e)  # HungerBridge error 401: Unauthorized
+```
+
+---
+
+## Full Example
+
+```python
+from hungerlib import BridgeClient
+
+bridge = BridgeClient(
+    url="http://mc.example.com:8080",
+    token="my-bridge-secret",
+)
+
+# Connection health
+print(bridge.getPing())                  # 12  (ms)
+print(bridge.getVersion())               # "2.1.0"
+print(bridge.getPlatform())              # "Paper"
+print(bridge.getMinecraftVersion())      # "1.21.1"
+print(bridge.getStatus())               # True
+
+# TPS monitoring
+print(bridge.getTPS())                   # 19.98
+print(bridge.getTPS('1m'))              # 19.95
+print(bridge.getTPS('tick_time'))       # 50.1
+
+# Player queries
+print(bridge.getPlayers('list'))        # ['Alice', 'Bob']
+print(bridge.getPlayers())             # 2
+
+# Run a command and capture output
+output = bridge.runCommand("say Hello from automation!")
+print(output)
+
+# Write to the server log
+bridge.log("Restart in 5 minutes", level="warn")
+```

@@ -1,47 +1,178 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with HungerLib in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Install HungerLib and connect to a Pterodactyl panel, control a server, and read live resource metrics in a working Python script."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through everything you need to go from a blank Python environment to a working Pterodactyl automation script. By the end you will have installed HungerLib, authenticated with your panel, polled live RAM and CPU metrics from a running server, issued power commands, and optionally connected a `MinecraftServer` to a HungerBridge sidecar for TPS and player data.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Install HungerLib">
+    Install HungerLib from PyPI. The package requires Python 3.9 or higher and pulls in `requests`, `mcrcon`, `PyYAML`, and `mapres` automatically.
+
+    <CodeGroup>
+
+    ```bash pip
+    pip install hungerlib
+    ```
+
+    ```bash pip3
+    pip3 install hungerlib
+    ```
+
+    </CodeGroup>
+
+    Verify the install:
 
     ```bash
-    npm install your-package
+    python -c "import hungerlib; print(hungerlib.__version__)"
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+  <Step title="Obtain a Pterodactyl API key">
+    HungerLib uses the **Pterodactyl Client API**, which authenticates with a personal API key scoped to your panel account.
 
-    ```bash
-    your-cli start
-    ```
+    1. Log in to your Pterodactyl panel.
+    2. Click your account avatar in the top-right corner and select **Account**.
+    3. Open the **API Credentials** tab.
+    4. Click **Create New** and give the key a descriptive name (e.g. `hungerlib-bot`).
+    5. Copy the generated key — it starts with `ptlc_` and is shown **only once**.
+
+    <Warning>
+      Keep your API key secret. It grants full Client API access to every server on your account. Store it in an environment variable or a config file that is excluded from version control.
+    </Warning>
   </Step>
+
+  <Step title="Connect to the panel">
+    Create a `Panel` object with your panel's base URL and the API key you just copied. Call `ping()` to verify the connection.
+
+    ```python
+    from hungerlib import Panel
+
+    panel = Panel(
+        name="my-panel",
+        url="https://panel.example.com",
+        api_key="ptlc_yourKey",
+    )
+
+    print(panel.ping())        # True  — panel is reachable and returned HTTP 200
+    print(panel.validateAPI()) # True  — API key is valid
+    ```
+
+    `Panel` also exposes sub-API modules for managing resources on any server:
+
+    | Attribute | Module |
+    |---|---|
+    | `panel.schedules` | Create, update, enable, disable, and run cron schedules |
+    | `panel.files` | List, upload, download, move, copy, compress, and delete files |
+    | `panel.backups` | List, create, download, and delete backups |
+    | `panel.databases` | List, create, rotate passwords, and delete databases |
+    | `panel.startup` | List and update startup variables |
+    | `panel.commands` | Send console commands |
+  </Step>
+
+  <Step title="Create a GenericServer and check status">
+    `GenericServer` wraps a single Pterodactyl server identified by its alphanumeric server ID (visible in the panel URL, e.g. `https://panel.example.com/server/abc123`).
+
+    ```python
+    from hungerlib import GenericServer
+
+    server = GenericServer(
+        name="lobby",
+        panel=panel,
+        server_id="abc123",
+    )
+
+    print(server.getStatus())    # "running"
+    print(server.getRAM())       # e.g. 512.0  (MB, rounded to 2 decimal places)
+    print(server.getCPU())       # e.g. 4.5    (percent, rounded to 2 decimal places)
+    print(server.getDisk())      # e.g. 1024.0 (MB)
+    print(server.getUptime(formatted=True))  # e.g. "2h 14m"
+    ```
+
+    To retrieve RAM or disk in gigabytes instead, pass `gb=True`:
+
+    ```python
+    print(server.getRAM(gb=True))   # e.g. 0.5
+    print(server.getDisk(gb=True))  # e.g. 1.0
+    ```
+
+    `getStatus()` returns one of `"running"`, `"offline"`, `"starting"`, or `"stopping"`. The convenience helpers `isOnline()` and `isOffline()` return a plain `bool`.
+  </Step>
+
+  <Step title="Power control">
+    `GenericServer` exposes four power-action shortcuts, each of which returns a `(status_code, response_text)` tuple.
+
+    ```python
+    server.start()    # sends signal: start
+    server.restart()  # sends signal: restart
+    server.stop()     # sends signal: stop
+    server.kill()     # sends signal: kill  (forceful termination)
+    ```
+
+    You can also call the underlying method directly if you prefer:
+
+    ```python
+    status_code, text = server.powerAction("restart")
+    print(status_code)  # 204 on success
+    ```
+
+    <Tip>
+      Combine power actions with the `waitForOnline` and `waitForOffline` utility functions to block until a state transition completes before proceeding with the next step in your automation.
+    </Tip>
+  </Step>
+
+  <Step title="(Optional) MinecraftServer with HungerBridge">
+    If you are running a Minecraft server with the [HungerBridge](https://github.com/iFamishedX) sidecar, use `MinecraftServer` instead of `GenericServer`. It inherits every method from `GenericServer` and adds Minecraft-specific features via the embedded `BridgeClient`.
+
+    ```python
+    from hungerlib import MinecraftServer
+
+    mc = MinecraftServer(
+        name="survival",
+        panel=panel,
+        server_id="def456",
+        server_domain="mc.example.com",
+        server_port=25565,
+        bridge_port=8080,
+        bridge_token="bridge-secret",
+    )
+
+    print(mc.getTPS())                  # e.g. 19.98  (EMA20, rounded to 3 decimal places)
+    print(mc.getTPS(mode="1m"))         # e.g. 19.75  (1-minute EMA)
+    print(mc.getTPS(mode="5m"))         # e.g. 19.50  (5-minute EMA)
+    print(mc.getPlayers())              # e.g. 12     (online player count)
+    print(mc.getPlayers(mode="list"))   # e.g. ["Alice", "Bob", "Charlie"]
+    ```
+
+    You can also send console commands and in-game broadcasts directly:
+
+    ```python
+    output = mc.sendConsoleCommand("list")     # returns normalized command output
+    mc.sendBroadcast("Server restarting in 5 minutes!")
+    ```
+
+    The raw `BridgeClient` is available at `mc.bridge` if you need lower-level access.
+  </Step>
+
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+  Call `validateAll(panel, server)` at the top of any automation script to run a fast connectivity pre-flight check. It returns `True` only when the panel is reachable, the API key is valid, **and** the target server is in `"running"` state — giving you a clean exit point before touching anything.
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  ```python
+  from hungerlib import validateAll
+
+  if not validateAll(panel, server):
+      raise SystemExit("Pre-flight check failed — aborting.")
+  ```
 </Tip>
+
+## Next Steps
+
+Now that you have a working connection, explore the full API surface:
+
+- [**Panel guide**](/guides/panel) — schedules, file management, backups, databases, and startup variables
+- [**Servers guide**](/guides/servers) — all `GenericServer` and `MinecraftServer` methods in depth
+- [**HungerBridge guide**](/guides/bridge) — the full `BridgeClient` v2 API reference

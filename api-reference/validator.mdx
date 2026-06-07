@@ -1,0 +1,308 @@
+---
+title: "Validator — Config Schema Validation Reference"
+sidebarTitle: "Validator"
+description: "Complete reference for Validator and its exception hierarchy: FatalError, TypeMismatchError, FallbackError, and RecommendedError with their attributes and usage patterns."
+---
+
+`Validator` is a base class for building configuration schema validators in HungerLib. Subclass it, override `validate_schema()` to add per-field checks using `check_field()` and `validate_key_types()`, then call `run(*configs)` to execute all validations and raise the highest-priority exception if any issues are found. The exception hierarchy (`FatalError` → `TypeMismatchError` → `FallbackError` → `RecommendedError`) lets callers catch exactly the severity they care about.
+
+```python
+from hungerlib.validator import Validator, FatalError, FallbackError
+
+class MyValidator(Validator):
+    def validate_schema(self, obj):
+        self.check_field(obj, "host")
+        self.check_field(obj, "port")
+        self.validate_key_types(obj, MySchema)
+
+v = MyValidator()
+try:
+    v.run(my_config)
+except FatalError as e:
+    print("Config has required errors:")
+    print(e.report)
+except FallbackError as e:
+    print("Config uses fallback values:")
+    print(e.report)
+```
+
+---
+
+## Constructor
+
+```python
+Validator(
+    msg_missing_required   = "{field}: missing required key",
+    msg_missing_recommended = "{field}: key missing, using fallback {fallback}",
+    msg_fallback_required  = "{field}: must not use fallback (got {value})",
+    msg_fallback_recommended = "{field}: using fallback {value}",
+    msg_type_mismatch      = "{schema}.{field}: expected {expected}, got {actual} ({value!r})",
+)
+```
+
+All parameters are Python format strings used to render issue messages. The templates are evaluated with `str.format(**kwargs)` where the keys correspond to the placeholders shown below.
+
+<ParamField path="msg_missing_required" type="str" default='"{field}: missing required key"'>
+  Template used when a field is absent from the config and its rule is `"required"`. Placeholder: `{field}` — the field name.
+</ParamField>
+
+<ParamField path="msg_missing_recommended" type="str" default='"{field}: key missing, using fallback {fallback}"'>
+  Template used when a field is absent and its rule is `"recommended"`. Placeholders: `{field}`, `{fallback}` — the fallback value that will be used.
+</ParamField>
+
+<ParamField path="msg_fallback_required" type="str" default='"{field}: must not use fallback (got {value})"'>
+  Template used when a `"required"` field still holds its fallback/default value. Placeholders: `{field}`, `{value}`.
+</ParamField>
+
+<ParamField path="msg_fallback_recommended" type="str" default='"{field}: using fallback {value}"'>
+  Template used when a `"recommended"` field is using its fallback value. Placeholders: `{field}`, `{value}`.
+</ParamField>
+
+<ParamField path="msg_type_mismatch" type="str" default='"{schema}.{field}: expected {expected}, got {actual} ({value!r})"'>
+  Template used when `validate_key_types()` detects a type mismatch. Placeholders: `{schema}`, `{field}`, `{expected}`, `{actual}`, `{value}`.
+</ParamField>
+
+After construction, four lists are available on the instance for inspection before `run()` is called:
+
+- `validator.errors` — list of error message strings
+- `validator.warnings` — list of warning strings
+- `validator.fallbacks` — list of fallback-usage strings
+- `validator.recommended` — list of recommended-field strings
+
+---
+
+## Methods
+
+### `check_field()`
+
+```python
+validator.check_field(obj, name: str) -> None
+```
+
+Inspects a single field on a config object and appends the appropriate message to `self.errors`, `self.fallbacks`, or `self.recommended` based on whether the field is missing, using a fallback, or within tolerance.
+
+The method reads three attributes from `obj`:
+- `obj.raw` — the raw parsed config object (e.g. loaded from YAML). Missing keys appear as `None`.
+- `obj.fallbacks` — a companion object holding fallback/default values for each field.
+- `obj.<name>` — the resolved value after fallback substitution.
+
+The field's validation rule (`"required"`, `"recommended"`, or `"optional"`) is read from `obj.__class__.rules.<name>` if the `rules` attribute exists; otherwise it defaults to `"optional"`.
+
+<ParamField path="obj" type="object" required>
+  The config object to inspect. Must have `raw`, `fallbacks`, and the named attribute.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  The attribute name to check.
+</ParamField>
+
+**Returns** `None`. Results are accumulated in `self.errors`, `self.fallbacks`, and `self.recommended`.
+
+---
+
+### `validate_key_types()`
+
+```python
+validator.validate_key_types(obj, schema) -> None
+```
+
+Iterates over the fields of a `dataclass` schema and compares the type of each field value on `obj` against the declared type annotation. Any mismatches are appended to `self.errors`.
+
+<ParamField path="obj" type="object" required>
+  The config object whose attribute values will be type-checked.
+</ParamField>
+
+<ParamField path="schema" type="type" required>
+  A `dataclass` class (not an instance). Its `fields()` are iterated to get field names and expected types. Fields whose names start with `"__"` are skipped. Fields with a `None` value on `obj` are also skipped (assumed not yet set).
+</ParamField>
+
+**Returns** `None`. Type mismatch messages are appended to `self.errors`.
+
+---
+
+### `validate_schema()`
+
+```python
+validator.validate_schema(obj) -> None
+```
+
+Override hook called once per config object by `run()`. The base implementation is a no-op. Subclasses override this method to call `check_field()`, `validate_key_types()`, and any custom validation logic.
+
+<ParamField path="obj" type="object" required>
+  The config object passed through from `run(*configs)`.
+</ParamField>
+
+**Returns** `None`.
+
+```python
+class AppValidator(Validator):
+    def validate_schema(self, obj):
+        self.check_field(obj, "host")
+        self.check_field(obj, "port")
+        self.check_field(obj, "token")
+        self.validate_key_types(obj, AppSchema)
+```
+
+---
+
+### `run()`
+
+```python
+validator.run(*configs) -> str
+```
+
+Runs validation on all supplied config objects by calling `validate_schema(cfg)` for each one, then raises the highest-priority exception if any issues were collected, or returns the clean report string if everything passes.
+
+**Exception priority** (highest first):
+
+| Condition | Exception raised |
+|---|---|
+| `self.errors` is non-empty | `FatalError` |
+| Any error contains `"expected"` (type mismatch) | `TypeMismatchError` |
+| `self.fallbacks` is non-empty | `FallbackError` |
+| `self.recommended` is non-empty | `RecommendedError` |
+
+<ParamField path="*configs" type="object" required>
+  One or more config objects to validate. Each is passed to `validate_schema()`.
+</ParamField>
+
+**Returns** `str` — the result of `format_report()`. Returns `"all configs valid"` if no issues were found.
+
+**Raises** `FatalError`, `TypeMismatchError`, `FallbackError`, or `RecommendedError` depending on the collected issues.
+
+---
+
+### `format_report()`
+
+```python
+validator.format_report() -> str
+```
+
+Builds and returns a human-readable multi-line report of all collected issues, grouped by category.
+
+**Returns** `str` — a formatted report. Returns `"all configs valid"` if all four lists are empty.
+
+Example output:
+
+```
+errors:
+ - host: missing required key
+ - port: missing required key
+recommended:
+ - token: key missing, using fallback default_token
+fallbacks:
+ - log_level: using fallback info
+```
+
+---
+
+## Exception Classes
+
+All exceptions carry the same five attributes and can be caught individually or as their common base `ValidationError`.
+
+### `ValidationError`
+
+```python
+ValidationError(report, errors=None, warnings=None, fallbacks=None, recommended=None)
+```
+
+Base exception for all HungerLib config validation failures. Inherits from `Exception`.
+
+<ResponseField name="report" type="str">
+  The full formatted report string from `format_report()`. Also the exception message (`str(e)`).
+</ResponseField>
+
+<ResponseField name="errors" type="list[str]">
+  List of fatal/type-error message strings. Empty list if none.
+</ResponseField>
+
+<ResponseField name="warnings" type="list[str]">
+  List of warning message strings. Empty list if none.
+</ResponseField>
+
+<ResponseField name="fallbacks" type="list[str]">
+  List of fallback-usage message strings. Empty list if none.
+</ResponseField>
+
+<ResponseField name="recommended" type="list[str]">
+  List of missing-recommended-field message strings. Empty list if none.
+</ResponseField>
+
+---
+
+### `FatalError`
+
+```python
+class FatalError(ValidationError): ...
+```
+
+Raised by `run()` when `self.errors` is non-empty, indicating that one or more required fields are missing or invalid. This is the highest-severity exception. Catch it to detect hard configuration failures that prevent the application from running.
+
+Inherits all attributes from `ValidationError`.
+
+---
+
+### `TypeMismatchError`
+
+```python
+class TypeMismatchError(ValidationError): ...
+```
+
+Raised by `run()` when errors contain type mismatch messages (those containing `"expected"`). Indicates that a field is present but has the wrong Python type. Inherits all attributes from `ValidationError`.
+
+---
+
+### `FallbackError`
+
+```python
+class FallbackError(ValidationError): ...
+```
+
+Raised by `run()` when `self.fallbacks` is non-empty, meaning one or more `"recommended"` fields are using their fallback values. Useful for issuing startup warnings without blocking execution. Inherits all attributes from `ValidationError`.
+
+---
+
+### `RecommendedError`
+
+```python
+class RecommendedError(ValidationError): ...
+```
+
+Raised by `run()` when `self.recommended` is non-empty, indicating that recommended fields were absent from the config. The lowest-severity validation exception. Inherits all attributes from `ValidationError`.
+
+---
+
+## Catching Exceptions
+
+Because all four exception classes share the same `ValidationError` base, you can catch them at whatever granularity your application requires:
+
+```python
+from hungerlib.validator import (
+    Validator,
+    FatalError,
+    TypeMismatchError,
+    FallbackError,
+    RecommendedError,
+    ValidationError,
+)
+
+v = AppValidator()
+try:
+    v.run(config)
+except FatalError as e:
+    # Required fields missing — cannot continue
+    for msg in e.errors:
+        print(f"FATAL: {msg}")
+    raise SystemExit(1)
+except TypeMismatchError as e:
+    for msg in e.errors:
+        print(f"TYPE ERROR: {msg}")
+    raise SystemExit(1)
+except FallbackError as e:
+    # Non-fatal — log but continue
+    for msg in e.fallbacks:
+        print(f"WARNING: {msg}")
+except RecommendedError as e:
+    for msg in e.recommended:
+        print(f"NOTE: {msg}")
+```

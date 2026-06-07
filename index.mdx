@@ -1,20 +1,91 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "HungerLib: Pterodactyl Automation Library for Python"
+sidebarTitle: "Home"
+description: "HungerLib is a Python library for automating Pterodactyl game server panels. Manage servers, files, schedules, databases, RCON, and more with a clean API."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+HungerLib is a Python library that gives you a clean, high-level interface for automating [Pterodactyl](https://pterodactyl.io) game server panels. Whether you need to control server power states, manage files, trigger scheduled tasks, or stream Minecraft console commands over HungerBridge, HungerLib provides ready-to-use classes and utilities so you can focus on your automation logic rather than raw HTTP calls.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Install HungerLib and connect to your first Pterodactyl server in minutes.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Load YAML-backed config files into typed dataclasses with fallback support.
+  </Card>
+  <Card title="Server Control" icon="server" href="/guides/servers">
+    Start, stop, monitor resources, and manage files across generic and Minecraft servers.
+  </Card>
+  <Card title="HungerBridge" icon="bridge" href="/guides/bridge">
+    Connect to the HungerBridge v2 API for TPS, player counts, and console commands.
+  </Card>
+  <Card title="Scheduling" icon="clock" href="/guides/scheduler">
+    Snap events to clock boundaries, run countdown callbacks, and wait for server states.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/panel">
+    Full reference for every class, method, parameter, and exception in HungerLib.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What's included
+
+<CardGroup cols={3}>
+  <Card title="Panel Client" icon="globe" href="/guides/panel">
+    Authenticated HTTP client wrapping all Pterodactyl Client API endpoints.
+  </Card>
+  <Card title="GenericServer" icon="cube" href="/guides/servers">
+    Universal server class for power, resources, files, backups, databases, and schedules.
+  </Card>
+  <Card title="MinecraftServer" icon="gamepad" href="/guides/servers">
+    Extends GenericServer with Minecraft-specific TPS, players, and broadcast utilities.
+  </Card>
+  <Card title="BridgeClient" icon="plug" href="/guides/bridge">
+    Python client for the HungerBridge v2 REST API running on your Minecraft server.
+  </Card>
+  <Card title="MessageRouter" icon="message" href="/guides/message-router">
+    Multi-destination logger: terminal, in-game broadcast, and rotating file logs.
+  </Card>
+  <Card title="Validator" icon="shield-check" href="/guides/validator">
+    Schema validator for config dataclasses with typed error levels and human-readable reports.
+  </Card>
+</CardGroup>
+
+## Install
+
+```bash
+pip install hungerlib
+```
+
+HungerLib requires Python 3.9 or later.
+
+<Steps>
+  <Step title="Install the library">
+    ```bash
+    pip install hungerlib
+    ```
+  </Step>
+  <Step title="Create a Panel connection">
+    ```python
+    from hungerlib import Panel
+
+    panel = Panel(
+        name="my-panel",
+        url="https://panel.example.com",
+        api_key="ptlc_yourAPIkeyHere",
+    )
+    print(panel.ping())  # True
+    ```
+  </Step>
+  <Step title="Attach a server and control it">
+    ```python
+    from hungerlib import GenericServer
+
+    server = GenericServer(name="lobby", panel=panel, server_id="abc123")
+    server.start()
+    print(server.getStatus())  # "running"
+    ```
+  </Step>
+  <Step title="Read the guides">
+    Dive into [Core Concepts](/guides/panel) to learn how Panel, GenericServer, and BridgeClient fit together.
+  </Step>
+</Steps>

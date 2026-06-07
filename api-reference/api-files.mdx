@@ -1,0 +1,317 @@
+---
+title: "FileManagerAPI — Pterodactyl File Operations Reference"
+sidebarTitle: "FileManagerAPI"
+description: "Reference for FileManagerAPI (panel.files): list, download, upload, delete, rename, copy, move, create folders, compress, and decompress server files via the Pterodactyl Client API."
+---
+
+`FileManagerAPI` is the low-level wrapper around Pterodactyl's file management endpoints. It is attached to every `Panel` instance as `panel.files` and is also called internally by the convenience methods on `GenericServer`. Every method accepts a `server_id` as its first argument and returns a raw `requests.Response` object — parse `response.json()` for the payload or check `response.status_code` for success.
+
+You will typically reach these methods through a `GenericServer` instance rather than calling them directly, but they are fully public and safe to use on their own when you need granular control over the Pterodactyl file API.
+
+```python
+from hungerlib import Panel
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+
+# Direct usage via panel.files
+response = panel.files.list("abc123", directory="/plugins")
+print(response.json())
+```
+
+---
+
+## `list`
+
+Returns the contents of a directory on the server's filesystem.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/files/list`
+
+```python
+panel.files.list(server_id, directory="/")
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server (e.g. `"abc123"`).
+</ParamField>
+
+<ParamField path="directory" type="str" default="/">
+  The directory path to list, relative to the server root. Defaults to the root directory `"/"`.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains a `data` array of file/directory objects, each with `name`, `mode`, `size`, `is_file`, `is_symlink`, `mimetype`, and `modified_at`.
+
+```python
+response = panel.files.list("abc123", directory="/plugins")
+for entry in response.json()["data"]:
+    print(entry["attributes"]["name"], entry["attributes"]["is_file"])
+```
+
+---
+
+## `download`
+
+Generates a short-lived signed download URL for a single file.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/files/download`
+
+```python
+panel.files.download(server_id, file_path)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="file_path" type="str" required>
+  The full path to the file relative to the server root (e.g. `"/server.properties"`).
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains `attributes.url`, a pre-signed URL you can `GET` to download the file contents.
+
+```python
+response = panel.files.download("abc123", "/server.properties")
+download_url = response.json()["attributes"]["url"]
+```
+
+---
+
+## `upload`
+
+Uploads a file to the server using a multipart form upload. The underlying `Panel._raw_upload()` method handles the `Content-Type: multipart/form-data` encoding.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/upload`
+
+```python
+panel.files.upload(server_id, directory, file_data)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="directory" type="str" required>
+  The destination directory on the server where the file will be written (e.g. `"/plugins"`).
+</ParamField>
+
+<ParamField path="file_data" type="dict" required>
+  A dictionary in the format expected by `requests` multipart uploads — typically `{"files": (filename, file_object, content_type)}`.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+with open("myplugin.jar", "rb") as f:
+    panel.files.upload("abc123", "/plugins", {"files": ("myplugin.jar", f, "application/java-archive")})
+```
+
+---
+
+## `delete`
+
+Permanently deletes one or more files or directories from the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/delete`
+
+```python
+panel.files.delete(server_id, root, files)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="root" type="str" required>
+  The base directory from which the `files` paths are resolved (e.g. `"/"`).
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  A list of file or directory names to delete, relative to `root` (e.g. `["old-world", "crash.txt"]`).
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.files.delete("abc123", "/", ["world_nether", "world_the_end"])
+```
+
+---
+
+## `rename`
+
+Renames one or more files or directories on the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/rename`
+
+```python
+panel.files.rename(server_id, root, files)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="root" type="str" required>
+  The base directory containing the files to rename.
+</ParamField>
+
+<ParamField path="files" type="list[dict]" required>
+  A list of rename operations. Each dict must contain `"from"` (the current name) and `"to"` (the new name), both relative to `root`.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.files.rename("abc123", "/", [
+    {"from": "server.properties.bak", "to": "server.properties"}
+])
+```
+
+---
+
+## `copy`
+
+Creates a copy of a file within the server filesystem.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/copy`
+
+```python
+panel.files.copy(server_id, root, files)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="root" type="str" required>
+  The base directory containing the file to copy.
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  A list of file paths (relative to `root`) to copy. Pterodactyl appends a suffix to avoid naming conflicts.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.files.copy("abc123", "/", ["server.properties"])
+```
+
+---
+
+## `move`
+
+Moves one or more files to a new location on the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/move`
+
+```python
+panel.files.move(server_id, root, files)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="root" type="str" required>
+  The base directory from which source paths are resolved.
+</ParamField>
+
+<ParamField path="files" type="list[dict]" required>
+  A list of move operations, each with `"from"` and `"to"` keys specifying source and destination paths relative to `root`.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.files.move("abc123", "/", [
+    {"from": "plugins/old-plugin.jar", "to": "plugins/archive/old-plugin.jar"}
+])
+```
+
+---
+
+## `create_folder`
+
+Creates a new directory on the server filesystem.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/create-folder`
+
+```python
+panel.files.create_folder(server_id, directory, name)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="directory" type="str" required>
+  The parent directory in which to create the new folder (sent as the `root` key in the JSON body).
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  The name of the new folder to create.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.files.create_folder("abc123", "/plugins", "MyPlugin")
+```
+
+---
+
+## `compress`
+
+Compresses one or more files into an archive on the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/compress`
+
+```python
+panel.files.compress(server_id, root, files)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="root" type="str" required>
+  The directory containing the files to compress.
+</ParamField>
+
+<ParamField path="files" type="list[str]" required>
+  A list of file or directory names (relative to `root`) to include in the archive.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body describes the newly created archive file, including its `name` and `size`.
+
+```python
+response = panel.files.compress("abc123", "/", ["world", "plugins"])
+archive_name = response.json()["attributes"]["name"]
+print(f"Created archive: {archive_name}")
+```
+
+---
+
+## `decompress`
+
+Extracts an archive file in-place on the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/files/decompress`
+
+```python
+panel.files.decompress(server_id, file_path)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="file_path" type="str" required>
+  The full path to the archive file to extract (sent as the `file` key in the JSON body), e.g. `"/archive-2024-01-01.tar.gz"`.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success; files are extracted into the same directory as the archive.
+
+```python
+panel.files.decompress("abc123", "/archive-2024-01-01.tar.gz")
+```

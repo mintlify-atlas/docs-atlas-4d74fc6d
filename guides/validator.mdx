@@ -1,0 +1,278 @@
+---
+title: "Validate Config Schemas with Validator"
+sidebarTitle: "Validator"
+description: "HungerLib's Validator checks config dataclasses for missing required fields, type mismatches, fallback usage, and recommended keys with structured, human-readable error reports."
+---
+
+Automation scripts fail in frustrating ways when configuration is wrong — a missing API key causes a cryptic `AttributeError` deep inside a restart loop, or a mistyped YAML value is silently coerced and produces subtly incorrect behavior. HungerLib's `Validator` class solves this by running structured checks on your config dataclasses before your script does any real work. It distinguishes between missing required fields (which should halt execution), type mismatches (which indicate likely bugs), fields still using their fallback value (informational), and missing recommended keys (advisory) — and it raises different exception types for each category so your script can respond appropriately.
+
+---
+
+## Error Hierarchy
+
+All validation exceptions inherit from `ValidationError`, which carries structured data alongside the human-readable report string.
+
+```python
+class ValidationError(Exception):
+    report: str      # human-readable summary of all issues
+    errors: list     # required-field / type-mismatch error messages
+    warnings: list   # warning messages
+    fallbacks: list  # fields using their fallback value
+    recommended: list  # recommended keys that are absent
+```
+
+The four concrete exception types, in descending priority order:
+
+<CardGroup cols={2}>
+  <Card title="FatalError" icon="circle-x">
+    One or more **required** fields are missing from the config file or are still using their declared fallback value. Script execution should not continue.
+  </Card>
+  <Card title="TypeMismatchError" icon="triangle-alert">
+    A field's value does not match the type declared in the dataclass annotation. Raised only when no `FatalError` conditions exist.
+  </Card>
+  <Card title="FallbackError" icon="info">
+    A **recommended** field is present in the YAML but its value matches the fallback. Non-fatal — the script can continue, but the operator should be informed.
+  </Card>
+  <Card title="RecommendedError" icon="circle-alert">
+    A **recommended** key is absent from the config file entirely. Advisory only — the fallback value is in use and the script can proceed.
+  </Card>
+</CardGroup>
+
+`Validator.run()` raises only the **highest-priority** exception found across all validated configs. If both `FatalError` and `FallbackError` conditions exist, only `FatalError` is raised — its `.fallbacks` attribute still contains the lower-priority findings.
+
+---
+
+## Defining Rules
+
+Config schemas declare their validation rules via a `rules` class attribute — a `SimpleNamespace` where each attribute name matches a dataclass field and its value is `"required"`, `"recommended"`, or `"optional"`.
+
+```python
+from dataclasses import dataclass
+from types import SimpleNamespace
+from hungerlib import loadConfig, Validator
+
+@dataclass
+class Config:
+    __mode__ = "config"
+    __user_config_path__ = "config/config.yaml"
+
+    # Each default string is a dotted YAML path resolved by loadConfig
+    panel_url: str = "panel.url"
+    panel_key: str = "panel.api_key"
+    debug: bool    = "app.debug"
+
+    rules = SimpleNamespace(
+        panel_url = "required",
+        panel_key = "required",
+        debug     = "recommended",
+    )
+```
+
+Fields not listed in `rules` default to `"optional"` and are not checked by `check_field`. The `rules` namespace is read at runtime by `Validator._rule()` — no metaclass magic or registration is required.
+
+<Note>
+  `loadConfig` populates each field from the YAML path stored in the dataclass default. If a YAML key is absent, `loadConfig` falls back to the `fallbacks` object defined in the same module. The `Validator` then inspects both `.raw` and `.fallbacks` attributes that `loadConfig` attaches to the config instance — do not strip these attributes before running validation.
+</Note>
+
+---
+
+## Subclassing Validator
+
+Create a subclass and override `validate_schema` to define which fields to check:
+
+```python
+from hungerlib import Validator
+
+class MyValidator(Validator):
+    def validate_schema(self, cfg):
+        # Check individual fields against their rules
+        self.check_field(cfg, "panel_url")
+        self.check_field(cfg, "panel_key")
+        self.check_field(cfg, "debug")
+
+        # Check all field types against dataclass annotations
+        self.validate_key_types(cfg, Config)
+```
+
+`validate_schema` is called once per config object passed to `run()`. You can call `check_field` and `validate_key_types` in any order and as many times as needed — results accumulate across all calls and are summarized in the final report.
+
+---
+
+## Running Validation
+
+```python
+from hungerlib import loadConfig
+from hungerlib.validator import FatalError, FallbackError, RecommendedError
+
+cfg = loadConfig(Config)
+v = MyValidator()
+
+try:
+    report = v.run(cfg)
+    print(report)  # "all configs valid"
+
+except FatalError as e:
+    print("Fatal config error:")
+    print(e.report)
+    raise SystemExit(1)
+
+except FallbackError as e:
+    # Non-fatal — log the warning and continue
+    print("Config warning (using fallback values):")
+    print(e.report)
+
+except RecommendedError as e:
+    # Advisory — continue but notify
+    print("Config advisory (recommended keys missing):")
+    print(e.report)
+```
+
+`run()` accepts multiple config objects: `v.run(cfg_a, cfg_b)`. It calls `validate_schema` on each in order, accumulates all findings, and raises a single exception summarizing everything.
+
+---
+
+## Constructor
+
+```python
+Validator(
+    msg_missing_required   = "{field}: missing required key",
+    msg_missing_recommended = "{field}: key missing, using fallback {fallback}",
+    msg_fallback_required  = "{field}: must not use fallback (got {value})",
+    msg_fallback_recommended = "{field}: using fallback {value}",
+    msg_type_mismatch      = "{schema}.{field}: expected {expected}, got {actual} ({value!r})",
+)
+```
+
+All constructor arguments are Python format strings. Override them to produce messages in a different language, style, or with additional context fields.
+
+<ParamField path="msg_missing_required" type="str" default='"{field}: missing required key"'>
+  Message appended to `errors` when a required field's YAML key is absent. Supports `{field}`.
+</ParamField>
+
+<ParamField path="msg_missing_recommended" type="str" default='"{field}: key missing, using fallback {fallback}"'>
+  Message appended to `recommended` when a recommended field's YAML key is absent. Supports `{field}`, `{fallback}`.
+</ParamField>
+
+<ParamField path="msg_fallback_required" type="str" default='"{field}: must not use fallback (got {value})"'>
+  Message appended to `errors` when a required field's value equals its declared fallback. Supports `{field}`, `{value}`.
+</ParamField>
+
+<ParamField path="msg_fallback_recommended" type="str" default='"{field}: using fallback {value}"'>
+  Message appended to `fallbacks` when a recommended field's value equals its declared fallback. Supports `{field}`, `{value}`.
+</ParamField>
+
+<ParamField path="msg_type_mismatch" type="str" default='"{schema}.{field}: expected {expected}, got {actual} ({value!r})"'>
+  Message appended to `errors` when a field's runtime type doesn't match the dataclass annotation. Supports `{schema}`, `{field}`, `{expected}`, `{actual}`, `{value}`.
+</ParamField>
+
+---
+
+## Key Methods
+
+### check_field
+
+```python
+Validator.check_field(obj, name: str)
+```
+
+Inspects a single field on a `loadConfig`-produced config instance. It reads the field's rule from `obj.__class__.rules`, compares the live value against the fallback value on `obj.fallbacks`, and checks whether the raw YAML key was present on `obj.raw`. Results are accumulated into `self.errors`, `self.fallbacks`, or `self.recommended` depending on the rule and finding.
+
+<ParamField path="obj" type="config instance">
+  A config object produced by `loadConfig`. Must have `.raw` and `.fallbacks` attributes attached.
+</ParamField>
+
+<ParamField path="name" type="str">
+  The field name to inspect. Must match an attribute on `obj`.
+</ParamField>
+
+### validate_key_types
+
+```python
+Validator.validate_key_types(obj, schema)
+```
+
+Iterates over all fields declared in the `schema` dataclass and compares each field's runtime value type against the declared annotation using `isinstance`. Fields whose names begin with `__` are skipped. Any mismatch appends a formatted message to `self.errors`.
+
+<ParamField path="obj" type="config instance">
+  The config object to inspect.
+</ParamField>
+
+<ParamField path="schema" type="dataclass type">
+  The dataclass class (not instance) whose field annotations define the expected types. Typically the same class used with `loadConfig`.
+</ParamField>
+
+### validate_schema
+
+```python
+Validator.validate_schema(obj)
+```
+
+Override this in your subclass to define which fields to check and in what order. The base implementation is a no-op. Called once per config object by `run()`.
+
+### run
+
+```python
+Validator.run(*configs) -> str
+```
+
+Calls `validate_schema` on each config, then raises the highest-priority exception found. Returns the report string `"all configs valid"` if no issues were found.
+
+### format_report
+
+```python
+Validator.format_report() -> str
+```
+
+Builds the human-readable report string from all accumulated `errors`, `recommended`, `fallbacks`, and `warnings`. Returns `"all configs valid"` if all lists are empty. Called automatically by `run()` before raising — you rarely need to call this directly.
+
+---
+
+## Full Example
+
+```python
+from dataclasses import dataclass
+from types import SimpleNamespace
+from hungerlib import loadConfig, Validator
+from hungerlib.validator import FatalError, FallbackError
+
+@dataclass
+class Config:
+    __mode__ = "config"
+    __user_config_path__ = "config/config.yaml"
+
+    panel_url: str = "panel.url"
+    panel_key: str = "panel.api_key"
+    server_id: str = "server.id"
+    debug: bool    = "app.debug"
+
+    rules = SimpleNamespace(
+        panel_url = "required",
+        panel_key = "required",
+        server_id = "required",
+        debug     = "recommended",
+    )
+
+class ConfigValidator(Validator):
+    def validate_schema(self, cfg):
+        self.check_field(cfg, "panel_url")
+        self.check_field(cfg, "panel_key")
+        self.check_field(cfg, "server_id")
+        self.check_field(cfg, "debug")
+        self.validate_key_types(cfg, Config)
+
+cfg = loadConfig(Config)
+validator = ConfigValidator()
+
+try:
+    report = validator.run(cfg)
+    print(f"Config OK: {report}")
+except FatalError as e:
+    print("Cannot start — config errors found:")
+    for err in e.errors:
+        print(f"  • {err}")
+    raise SystemExit(1)
+except FallbackError as e:
+    print("Config loaded with warnings:")
+    print(e.report)
+    # Continue execution with fallback values
+```

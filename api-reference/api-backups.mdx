@@ -1,0 +1,127 @@
+---
+title: "BackupsAPI — Pterodactyl Backup Management Reference"
+sidebarTitle: "BackupsAPI"
+description: "Reference for BackupsAPI (panel.backups): list, create, delete, and download server backups via the Pterodactyl Client API."
+---
+
+`BackupsAPI` provides a direct interface to Pterodactyl's backup endpoints. It is mounted on every `Panel` instance as `panel.backups` and is also called internally by backup-related methods on `GenericServer`. All methods accept a `server_id` as their first argument and return a raw `requests.Response`.
+
+Most users will interact with backups through `GenericServer`, but `panel.backups` is fully public for cases where you need direct access — for example, polling backup status in a custom loop or building tooling around the raw Pterodactyl API response.
+
+```python
+from hungerlib import Panel
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+
+# Direct usage via panel.backups
+response = panel.backups.list("abc123")
+print(response.json())
+```
+
+---
+
+## `list`
+
+Returns all backups associated with a server.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/backups`
+
+```python
+panel.backups.list(server_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server (e.g. `"abc123"`).
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains a `data` array of backup objects. Each backup includes `uuid`, `name`, `bytes`, `sha256_hash`, `is_successful`, `is_locked`, `created_at`, and `completed_at`.
+
+```python
+response = panel.backups.list("abc123")
+backups = response.json()["data"]
+for backup in backups:
+    attrs = backup["attributes"]
+    print(attrs["name"], attrs["created_at"], attrs["is_successful"])
+```
+
+---
+
+## `create`
+
+Initiates a new backup for the server. The backup runs asynchronously on the panel side — poll `list()` or check the panel dashboard to confirm completion.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/backups`
+
+```python
+panel.backups.create(server_id, name="Auto Backup")
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="name" type="str" default="Auto Backup">
+  A human-readable label for the backup. Defaults to `"Auto Backup"` if not provided.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body describes the newly created backup object including its `uuid` and initial status.
+
+```python
+response = panel.backups.create("abc123", name="Pre-update Snapshot")
+backup_uuid = response.json()["attributes"]["uuid"]
+print(f"Backup started: {backup_uuid}")
+```
+
+---
+
+## `delete`
+
+Permanently deletes a specific backup from the server.
+
+**Endpoint:** `DELETE /api/client/servers/{server_id}/backups/{backup_id}`
+
+```python
+panel.backups.delete(server_id, backup_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="backup_id" type="str" required>
+  The UUID of the backup to delete. Obtain this from `list()` via `backup["attributes"]["uuid"]`.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.backups.delete("abc123", "550e8400-e29b-41d4-a716-446655440000")
+```
+
+---
+
+## `download`
+
+Generates a short-lived signed download URL for a specific backup.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/backups/{backup_id}/download`
+
+```python
+panel.backups.download(server_id, backup_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="backup_id" type="str" required>
+  The UUID of the backup to download.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains `attributes.url`, a pre-signed URL from which the backup archive can be downloaded directly.
+
+```python
+response = panel.backups.download("abc123", "550e8400-e29b-41d4-a716-446655440000")
+download_url = response.json()["attributes"]["url"]
+print(f"Download your backup at: {download_url}")
+```

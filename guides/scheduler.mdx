@@ -1,0 +1,228 @@
+---
+title: "Schedule Events and Wait for Server States"
+sidebarTitle: "Scheduler"
+description: "HungerLib's scheduling utilities snap events to clock boundaries, run countdown callbacks at precise intervals, and block until servers reach a target state."
+---
+
+HungerLib's scheduling utilities solve the most common timing needs in Pterodactyl automation scripts: finding the next clean clock boundary for a restart, firing warning messages at precise countdown intervals, and blocking script execution until a server has fully started or stopped. Rather than writing ad-hoc `time.sleep` loops, you can express intent directly — "restart at the next `:00` or `:30`, at least 15 minutes from now" — and let HungerLib handle the arithmetic.
+
+---
+
+## snapSchedule
+
+```python
+snapSchedule(minimumMinutes: int = 30, snapMinutes: tuple[int, int] = (0, 30)) -> dict
+```
+
+`snapSchedule` looks at the current time, adds the required lead time, then finds the earliest minute value from `snapMinutes` that the result still falls before. If no snap minute within the current hour qualifies, it rolls over to the top of the next hour. This guarantees scheduled events always land on a clean, predictable boundary rather than an arbitrary offset.
+
+<ParamField path="minimumMinutes" type="int" default="30">
+  The minimum number of minutes of lead time required before the scheduled event. The function will not schedule anything sooner than `now + minimumMinutes`.
+</ParamField>
+
+<ParamField path="snapMinutes" type="tuple[int, int]" default="(0, 30)">
+  The set of minute values (within an hour) that are acceptable schedule targets. Values are sorted automatically. For example, `(0, 15, 30, 45)` snaps to quarter-hour boundaries.
+</ParamField>
+
+**Return value** — a `dict` with four keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `now` | `datetime` | The exact moment `snapSchedule` was called |
+| `minimum` | `datetime` | `now` plus `minimumMinutes` |
+| `scheduled` | `datetime` | The chosen snap target — always ≥ `minimum` |
+| `formatted` | `str` | `scheduled` formatted as `"HH:MM AM/PM"` (e.g. `"02:30 PM"`) |
+
+```python
+from hungerlib import snapSchedule
+
+result = snapSchedule(minimumMinutes=15, snapMinutes=(0, 30))
+print(result['formatted'])   # e.g. "02:30 PM"
+print(result['scheduled'])   # datetime object — use with runCountdownEvents
+```
+
+<Tip>
+  Pass `result['scheduled']` directly to `runCountdownEvents` to wire snap scheduling into a full countdown pipeline.
+</Tip>
+
+---
+
+## runCountdownEvents
+
+```python
+runCountdownEvents(
+    target_time,
+    minute_callbacks: dict | None = None,
+    second_callbacks: dict | None = None,
+    tick_interval: int = 1,
+)
+```
+
+`runCountdownEvents` blocks the calling thread until `target_time` is reached, waking up every `tick_interval` seconds to check whether any registered callback threshold has been crossed. Each callback is guaranteed to fire **at most once** — HungerLib tracks which thresholds have already been triggered and skips duplicates.
+
+<ParamField path="target_time" type="datetime">
+  The future `datetime` to count down toward. The function returns as soon as `datetime.now()` reaches or passes this value.
+</ParamField>
+
+<ParamField path="minute_callbacks" type="dict | None" default="None">
+  A mapping of `{minutes_remaining: callable}`. Each callable is called with no arguments when the countdown crosses that minute threshold. Pass `None` to skip minute-based events.
+</ParamField>
+
+<ParamField path="second_callbacks" type="dict | None" default="None">
+  A mapping of `{seconds_remaining: callable}`. Works the same as `minute_callbacks` but operates at second granularity. Pass `None` to skip second-based events.
+</ParamField>
+
+<ParamField path="tick_interval" type="int" default="1">
+  Sleep duration in seconds between each poll cycle. Lower values increase precision at the cost of CPU usage. The default of `1` is appropriate for most automation scripts.
+</ParamField>
+
+```python
+from datetime import datetime, timedelta
+from hungerlib import runCountdownEvents
+
+target = datetime.now() + timedelta(minutes=10)
+
+runCountdownEvents(
+    target_time=target,
+    minute_callbacks={
+        5: lambda: print("5 minutes until restart!"),
+        1: lambda: print("1 minute remaining!"),
+    },
+    second_callbacks={
+        30: lambda: print("30 seconds!"),
+        10: lambda: print("10 seconds!"),
+    },
+)
+```
+
+<Note>
+  The function returns `None` when the countdown expires — it does **not** call the scheduled action itself. Place the action (e.g. `server.restart()`) immediately after `runCountdownEvents` returns.
+</Note>
+
+---
+
+## waitForOnline / waitForOffline
+
+```python
+waitForOnline(server, timeout: int = 60, interval: int = 2) -> bool
+waitForOffline(server, timeout: int = 60, interval: int = 2) -> bool
+```
+
+These helpers poll a server's state in a tight loop, returning `True` as soon as the target state is reached or `False` if the timeout elapses first. They rely on the server's `.isOnline()` and `.isOffline()` methods respectively and are safe to use with any `GenericServer` or `MinecraftServer` instance.
+
+<ParamField path="server" type="Server">
+  Any HungerLib server object that implements `.isOnline()` / `.isOffline()`.
+</ParamField>
+
+<ParamField path="timeout" type="int" default="60">
+  Maximum number of seconds to wait before giving up and returning `False`.
+</ParamField>
+
+<ParamField path="interval" type="int" default="2">
+  Seconds to sleep between each state poll. Increase this to reduce API call frequency against the Pterodactyl panel.
+</ParamField>
+
+```python
+from hungerlib import waitForOnline, waitForOffline
+
+server.stop()
+if waitForOffline(server, timeout=90):
+    print("Server stopped cleanly")
+else:
+    print("Timed out waiting for server to go offline")
+
+server.start()
+if waitForOnline(server, timeout=120):
+    print("Server is back online")
+else:
+    print("Server failed to come back within 120 seconds")
+```
+
+<Warning>
+  Always check the boolean return value. A `False` result means the server did not reach the expected state within your timeout — your script should handle this case rather than proceeding blindly.
+</Warning>
+
+---
+
+## secsUntil / minsUntil
+
+```python
+secsUntil(target: datetime) -> int
+minsUntil(target: datetime) -> int
+```
+
+Simple utility functions that compute the integer number of seconds or whole minutes remaining between now and a future `datetime`. Both functions truncate (floor division) rather than rounding.
+
+<ParamField path="target" type="datetime">
+  The future point in time to measure toward. Passing a datetime in the past returns a negative integer.
+</ParamField>
+
+```python
+from hungerlib import secsUntil, minsUntil
+from datetime import datetime
+
+target = datetime(2024, 12, 25, 0, 0, 0)
+print(minsUntil(target))  # whole minutes until midnight Christmas
+print(secsUntil(target))  # total seconds until midnight Christmas
+```
+
+These are most useful inside `minute_callbacks` or `second_callbacks` passed to `runCountdownEvents` when you want the callback itself to report remaining time.
+
+---
+
+## clearTerminal
+
+```python
+clearTerminal()
+```
+
+Clears the terminal output using the appropriate system command for the current OS (`clear` on POSIX systems, `cls` on Windows). Useful in long-running automation scripts to keep the console readable between restart cycles.
+
+```python
+from hungerlib import clearTerminal
+
+clearTerminal()
+print("Starting new restart cycle...")
+```
+
+---
+
+## Putting It All Together
+
+<Steps>
+  <Step title="Compute the next snap time">
+    ```python
+    from hungerlib import snapSchedule
+
+    result = snapSchedule(minimumMinutes=20, snapMinutes=(0, 30))
+    print(f"Restart scheduled for {result['formatted']}")
+    ```
+  </Step>
+  <Step title="Run the countdown with player warnings">
+    ```python
+    from hungerlib import runCountdownEvents
+
+    runCountdownEvents(
+        target_time=result['scheduled'],
+        minute_callbacks={
+            10: lambda: server.sendBroadcast("&eServer restarting in 10 minutes!"),
+            5:  lambda: server.sendBroadcast("&cServer restarting in 5 minutes!"),
+            1:  lambda: server.sendBroadcast("&4Server restarting in 1 minute!"),
+        },
+        second_callbacks={
+            30: lambda: server.sendBroadcast("&430 seconds until restart!"),
+        },
+    )
+    ```
+  </Step>
+  <Step title="Restart and wait for the server to come back">
+    ```python
+    from hungerlib import waitForOffline, waitForOnline
+
+    server.restart()
+    if waitForOffline(server, timeout=120):
+        if waitForOnline(server, timeout=180):
+            print("Restart complete!")
+    ```
+  </Step>
+</Steps>

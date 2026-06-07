@@ -1,0 +1,308 @@
+---
+title: "BridgeClient — HungerBridge v2 API Reference"
+sidebarTitle: "BridgeClient"
+description: "Complete reference for BridgeClient: raw v2 endpoints, command execution, logging, TPS getters, and player query methods for the HungerBridge v2 REST API."
+---
+
+`BridgeClient` is a thin Python client for the [HungerBridge v2 REST API](https://github.com/iFamishedX/HungerBridge). It handles authentication via the `X-Auth-Key` header and raises typed exceptions (`HungerBridgeError`, `InvalidLevelError`, `InvalidModeError`) on error conditions. Every `MinecraftServer` instance creates and owns a `BridgeClient` at `self.bridge`; you can also instantiate one directly for standalone bridge access.
+
+```python
+from hungerlib.bridgeclient import BridgeClient
+
+client = BridgeClient("http://mc.example.com:8080", "my-secret-token")
+
+print(client.getPing())           # e.g. 4  (ms)
+print(client.getTPS())            # e.g. 19.98
+print(client.getPlayers("list"))  # ["Steve", "Alex"]
+```
+
+---
+
+## Constructor
+
+```python
+BridgeClient(url: str, token: str)
+```
+
+<ParamField path="url" type="str" required>
+  Base URL of the HungerBridge instance, e.g. `"http://mc.example.com:8080"`. Trailing slashes are stripped and `/v2/` is appended automatically.
+</ParamField>
+
+<ParamField path="token" type="str" required>
+  The `X-Auth-Key` authentication token configured in HungerBridge.
+</ParamField>
+
+---
+
+## Raw Endpoints
+
+These methods call the HungerBridge v2 REST endpoints directly and return the raw parsed JSON response as a `dict`. Use them when you need fields not exposed by the higher-level getters.
+
+**All raw endpoint methods raise `HungerBridgeError` if the HTTP response is not successful.**
+
+### `v2_ping()`
+
+```python
+client.v2_ping() -> dict
+```
+
+Calls `GET /v2/ping`. Used internally by `getPing()` to measure round-trip latency.
+
+**Returns** `dict` — bridge ping response.
+
+---
+
+### `v2_info()`
+
+```python
+client.v2_info() -> dict
+```
+
+Calls `GET /v2/info`. Returns version and platform metadata about the running bridge instance.
+
+**Returns** `dict` containing a `"bridge"` object with `"version"`, `"platform"`, and `"minecraft"` keys.
+
+---
+
+### `v2_status()`
+
+```python
+client.v2_status() -> dict
+```
+
+Calls `GET /v2/status`. Returns a simple health/connection status.
+
+**Returns** `dict` with an `"ok"` boolean field.
+
+---
+
+### `v2_tps()`
+
+```python
+client.v2_tps() -> dict
+```
+
+Calls `GET /v2/tps`. Returns all TPS metrics from the server.
+
+**Returns** `dict` with keys `"tps"`, `"tps_1m"`, `"tps_5m"`, and `"tick_time_ms"`.
+
+---
+
+### `v2_players()`
+
+```python
+client.v2_players() -> dict
+```
+
+Calls `GET /v2/players`. Returns online player data.
+
+**Returns** `dict` with keys `"count"` (int) and `"players"` (list of str).
+
+---
+
+## Public API
+
+### `runCommand()`
+
+```python
+client.runCommand(
+    command: str,
+    show_console: bool = False,
+    silent: bool = False,
+    normalize: bool = True,
+) -> str | dict | None
+```
+
+Executes a command on the Minecraft server via `POST /v2/run` and returns the output.
+
+<ParamField path="command" type="str" required>
+  The server command to execute, without a leading `/`, e.g. `"op Steve"` or `"whitelist add Alex"`.
+</ParamField>
+
+<ParamField path="show_console" type="bool" default="False">
+  When `True`, the command and its output are echoed to the server console log.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  When `True`, the command runs without generating in-game feedback messages.
+</ParamField>
+
+<ParamField path="normalize" type="bool" default="True">
+  When `True` (default), output is returned as a single `str` with lines joined by `\n`. When `False`, the raw bridge response (`dict` or `str`) is returned as-is.
+</ParamField>
+
+**Returns** `str` of normalised output when `normalize=True`, or the raw response object when `normalize=False`. Returns `None` if the bridge returns no output field.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+```python
+out = client.runCommand("list", show_console=True)
+# "There are 2 of a max of 20 players online: Steve, Alex"
+```
+
+---
+
+### `log()`
+
+```python
+client.log(message: str, level: str = "info") -> dict
+```
+
+Sends a log message to the server console via `POST /v2/log`.
+
+<ParamField path="message" type="str" required>
+  The message text to log.
+</ParamField>
+
+<ParamField path="level" type="str" default="info">
+  Log severity level. Must be one of `"info"`, `"warn"`, `"error"`, or `None`. Passing `None` strips the log level prefix from the output using a backspace sequence, producing unformatted console output.
+</ParamField>
+
+**Returns** `dict` — the bridge's response body.
+
+**Raises** `InvalidLevelError` if `level` is not one of the four accepted values.
+
+```python
+client.log("Backup started", level="info")
+client.log("Low disk space", level="warn")
+client.log("Crash detected", level="error")
+```
+
+---
+
+## Getters
+
+### `getPing()`
+
+```python
+client.getPing() -> int
+```
+
+Measures the round-trip latency to the bridge by timing a `v2_ping()` call client-side.
+
+**Returns** `int` — round-trip time in milliseconds.
+
+**Raises** `HungerBridgeError` if the bridge is unreachable.
+
+---
+
+### `getVersion()`
+
+```python
+client.getVersion() -> str | None
+```
+
+**Returns** `str` — the HungerBridge plugin version string (e.g. `"2.1.0"`), or `None` if not present in the response.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+---
+
+### `getPlatform()`
+
+```python
+client.getPlatform() -> str | None
+```
+
+**Returns** `str` — the server software platform (e.g. `"Paper"`, `"Spigot"`), or `None` if not present.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+---
+
+### `getMinecraftVersion()`
+
+```python
+client.getMinecraftVersion() -> str | None
+```
+
+**Returns** `str` — the Minecraft version string (e.g. `"1.21.1"`), or `None` if not present.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+---
+
+### `getStatus()`
+
+```python
+client.getStatus() -> bool
+```
+
+**Returns** `bool` — the value of the `"ok"` field from `v2_status()`. `True` indicates the bridge is healthy and connected to the server.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+---
+
+### `getTPS()`
+
+```python
+client.getTPS(mode: str = "current") -> float
+```
+
+Returns one of four TPS measurements from the `v2_tps()` endpoint.
+
+<ParamField path="mode" type="str" default="current">
+  Selects which metric to return:
+
+  | Mode | Field | Description |
+  |---|---|---|
+  | `"current"` | `tps` | EMA20 — exponential moving average over the last 20 ticks. Reflects near-real-time server performance. |
+  | `"1m"` | `tps_1m` | EMA1200 — smoothed average over approximately the last 1 minute of ticks. |
+  | `"5m"` | `tps_5m` | EMA6000 — smoothed average over approximately the last 5 minutes of ticks. |
+  | `"tick_time"` | `tick_time_ms` | Average tick duration in milliseconds. A healthy server targets ≤ 50 ms per tick. |
+</ParamField>
+
+**Returns** `float` — the requested TPS value.
+
+**Raises** `InvalidModeError` if `mode` is not one of the four accepted values.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+```python
+client.getTPS()             # 19.98   (EMA20)
+client.getTPS("1m")         # 19.75   (1-minute EMA)
+client.getTPS("5m")         # 19.50   (5-minute EMA)
+client.getTPS("tick_time")  # 1.24    (ms per tick)
+```
+
+---
+
+### `getPlayers()`
+
+```python
+client.getPlayers(mode: str = "count") -> int | list
+```
+
+<ParamField path="mode" type="str" default="count">
+  Selects what to return:
+  - `"count"` — returns the integer number of currently online players.
+  - `"list"` — returns a `list[str]` of online player usernames.
+</ParamField>
+
+**Returns** `int` when `mode="count"`, `list[str]` when `mode="list"`.
+
+**Raises** `InvalidModeError` if `mode` is not `"count"` or `"list"`.
+
+**Raises** `HungerBridgeError` if the HTTP request fails.
+
+```python
+client.getPlayers()          # 5
+client.getPlayers("list")    # ["Steve", "Alex", "Notch", "Herobrine", "Dream"]
+```
+
+---
+
+## Exceptions
+
+<ResponseField name="HungerBridgeError" type="Exception">
+  Raised by any method when the HungerBridge HTTP response has a non-2xx status code, or when a response cannot be parsed. Inherits from the base `Exception` class directly (not `HungerLibError`).
+</ResponseField>
+
+<ResponseField name="InvalidLevelError" type="HungerLibError">
+  Raised by `log()` when the supplied `level` argument is not `"info"`, `"warn"`, `"error"`, or `None`.
+</ResponseField>
+
+<ResponseField name="InvalidModeError" type="HungerLibError">
+  Raised by `getTPS()` and `getPlayers()` when the `mode` argument is not a recognised value.
+</ResponseField>

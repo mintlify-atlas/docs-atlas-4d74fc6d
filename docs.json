@@ -1,72 +1,91 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "HungerLib",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
-  },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "primary": "#E8501A",
+    "light": "#FF7A4D",
+    "dark": "#C03A08"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/iFamishedX/HungerLib"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/iFamishedX/HungerLib"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "guides/panel",
+              "guides/servers",
+              "guides/bridge"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "guides/scheduler",
+              "guides/message-router",
+              "guides/validator",
+              "guides/snapshot"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Classes",
+            "pages": [
+              "api-reference/panel",
+              "api-reference/generic-server",
+              "api-reference/minecraft-server",
+              "api-reference/bridge-client",
+              "api-reference/message-router",
+              "api-reference/validator",
+              "api-reference/snapshot"
+            ]
+          },
+          {
+            "group": "Panel API Modules",
+            "pages": [
+              "api-reference/api-files",
+              "api-reference/api-backups",
+              "api-reference/api-databases",
+              "api-reference/api-schedules",
+              "api-reference/api-startup",
+              "api-reference/api-commands"
+            ]
+          },
+          {
+            "group": "Utilities & Exceptions",
+            "pages": [
+              "api-reference/utils-time",
+              "api-reference/utils-misc",
+              "api-reference/exceptions"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

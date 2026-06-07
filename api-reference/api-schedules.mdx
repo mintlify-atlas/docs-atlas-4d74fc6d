@@ -1,0 +1,190 @@
+---
+title: "ScheduleAPI — Pterodactyl Schedule Management Reference"
+sidebarTitle: "ScheduleAPI"
+description: "Reference for ScheduleAPI (panel.schedules): list, create, update, delete, and manually trigger server schedules via the Pterodactyl Client API."
+---
+
+`ScheduleAPI` is the low-level interface to Pterodactyl's schedule (cron) system. It is accessible as `panel.schedules` on every `Panel` instance. `GenericServer` wraps these methods with higher-level helpers for common scheduling patterns, but you can call `panel.schedules` directly when you need full control over schedule payloads.
+
+Pterodactyl schedules use standard cron expressions (`minute`, `hour`, `day_of_month`, `month`, `day_of_week`) and support optional constraints such as `only_when_online`. All methods accept `server_id` as their first argument and return a raw `requests.Response`.
+
+```python
+from hungerlib import Panel
+
+panel = Panel("https://panel.example.com", "ptlc_yourtoken")
+
+# Direct usage via panel.schedules
+response = panel.schedules.list("abc123")
+print(response.json())
+```
+
+---
+
+## `list`
+
+Returns all schedules defined for a server.
+
+**Endpoint:** `GET /api/client/servers/{server_id}/schedules`
+
+```python
+panel.schedules.list(server_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server (e.g. `"abc123"`).
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains a `data` array of schedule objects. Each schedule includes `id`, `name`, `cron` details, `is_active`, `is_processing`, `only_when_online`, `last_run_at`, and `next_run_at`.
+
+```python
+response = panel.schedules.list("abc123")
+for schedule in response.json()["data"]:
+    attrs = schedule["attributes"]
+    print(attrs["name"], attrs["next_run_at"], attrs["is_active"])
+```
+
+---
+
+## `create`
+
+Creates a new schedule for the server.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/schedules`
+
+```python
+panel.schedules.create(server_id, payload)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="payload" type="dict" required>
+  A dictionary describing the schedule. See the payload reference below.
+</ParamField>
+
+**Payload keys:**
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `name` | `str` | Yes | A human-readable label for the schedule. |
+| `minute` | `str` | Yes | Cron minute expression (e.g. `"0"`, `"*/15"`). |
+| `hour` | `str` | Yes | Cron hour expression (e.g. `"4"`, `"*"`). |
+| `day_of_month` | `str` | Yes | Cron day-of-month expression (e.g. `"*"`, `"1"`). |
+| `month` | `str` | Yes | Cron month expression (e.g. `"*"`). |
+| `day_of_week` | `str` | Yes | Cron day-of-week expression (e.g. `"*"`, `"1"`). |
+| `is_active` | `bool` | Yes | Whether the schedule is enabled. |
+| `only_when_online` | `bool` | Yes | If `True`, tasks only run when the server is online. |
+
+**Returns:** `requests.Response` — JSON body describes the newly created schedule including its assigned `id`.
+
+**Example — create a daily restart at 4:00 AM:**
+
+```python
+payload = {
+    "name": "Daily Restart",
+    "minute": "0",
+    "hour": "4",
+    "day_of_month": "*",
+    "month": "*",
+    "day_of_week": "*",
+    "is_active": True,
+    "only_when_online": False,
+}
+
+response = panel.schedules.create("abc123", payload)
+schedule_id = response.json()["attributes"]["id"]
+print(f"Schedule created with ID: {schedule_id}")
+```
+
+---
+
+## `update`
+
+Updates an existing schedule. Pass the same payload shape as `create()` with whichever fields you want to change.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/schedules/{schedule_id}`
+
+```python
+panel.schedules.update(server_id, schedule_id, payload)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="schedule_id" type="int | str" required>
+  The numeric ID of the schedule to update. Obtain this from `list()` via `schedule["attributes"]["id"]`.
+</ParamField>
+
+<ParamField path="payload" type="dict" required>
+  A dict containing the updated schedule fields. Accepts the same keys as the `create()` payload.
+</ParamField>
+
+**Returns:** `requests.Response` — JSON body contains the updated schedule object.
+
+```python
+# Disable the daily restart schedule
+panel.schedules.update("abc123", 7, {
+    "name": "Daily Restart",
+    "minute": "0",
+    "hour": "4",
+    "day_of_month": "*",
+    "month": "*",
+    "day_of_week": "*",
+    "is_active": False,
+    "only_when_online": False,
+})
+```
+
+---
+
+## `delete`
+
+Permanently deletes a schedule from the server.
+
+**Endpoint:** `DELETE /api/client/servers/{server_id}/schedules/{schedule_id}`
+
+```python
+panel.schedules.delete(server_id, schedule_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="schedule_id" type="int | str" required>
+  The numeric ID of the schedule to delete.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.schedules.delete("abc123", 7)
+```
+
+---
+
+## `run`
+
+Manually triggers a schedule to execute immediately, regardless of its next scheduled time. The schedule must be active.
+
+**Endpoint:** `POST /api/client/servers/{server_id}/schedules/{schedule_id}/execute`
+
+```python
+panel.schedules.run(server_id, schedule_id)
+```
+
+<ParamField path="server_id" type="str" required>
+  The short identifier of the target server.
+</ParamField>
+
+<ParamField path="schedule_id" type="int | str" required>
+  The numeric ID of the schedule to execute immediately.
+</ParamField>
+
+**Returns:** `requests.Response` — A `204 No Content` response on success.
+
+```python
+panel.schedules.run("abc123", 7)
+```

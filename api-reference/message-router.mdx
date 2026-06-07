@@ -1,0 +1,325 @@
+---
+title: "MessageRouter — Multi-Destination Logger Reference"
+sidebarTitle: "MessageRouter"
+description: "Complete reference for MessageRouter: constructor parameters, routing methods, log levels, and color map configuration for terminal, broadcast, bridge, and file destinations."
+---
+
+`MessageRouter` is a structured logging and message-routing utility that fans a single log call out to multiple destinations simultaneously: the local terminal (`origin`), every server's HungerBridge console (`destination`), every server's in-game chat (`broadcast`), and a rotating date-stamped log file (`filelog`). Color and format transformations are applied per-destination using `mapres` map lists, so ANSI escape codes appear in the terminal, Minecraft color codes appear in chat, and plain stripped text is written to disk.
+
+Log files are created automatically in the `log_path` directory and named `{name}_YYYY-MM-DD.log`.
+
+```python
+from hungerlib.messagerouter import MessageRouter
+
+router = MessageRouter(
+    name="bot",
+    Servers=[mc_server],
+    log_path="./logs",
+)
+
+router.info("Server is starting up")
+router.warn("Memory usage above 80%")
+router.error("Connection to database lost")
+```
+
+---
+
+## Constructor
+
+```python
+MessageRouter(
+    name: str,
+    Servers: list,
+    log_path: str,
+    origin_maps      = [maps.ascii_colors],
+    destination_maps = [maps.ascii_colors],
+    broadcast_maps   = [maps.mc_colors],
+    file_maps        = [maps.strip_colors],
+    prefix_maps      = [maps.ascii_colors, maps.time],
+    info_prefix  = "<white>[%hh%:%mm%:%ss%] [INFO]: ",
+    warn_prefix  = "<yellow>[%hh%:%mm%:%ss%] [WARN]: ",
+    error_prefix = "<red>[%hh%:%mm%:%ss%] [ERROR]: ",
+)
+```
+
+<ParamField path="name" type="str" required>
+  Identifier for this router. Used as the Python `logging.Logger` name and as the prefix of log filenames: `{name}_YYYY-MM-DD.log`.
+</ParamField>
+
+<ParamField path="Servers" type="list" required>
+  List of server objects (typically `MinecraftServer` instances) to route messages to. The router inspects each for a `.bridge` attribute (for `destination`) and a `.sendBroadcast` method (for `broadcast`), so plain `GenericServer` instances are silently skipped for those routes.
+</ParamField>
+
+<ParamField path="log_path" type="str" required>
+  Filesystem path to the directory where log files will be written. Created automatically with `mkdir(parents=True, exist_ok=True)` if it does not exist.
+</ParamField>
+
+<ParamField path="origin_maps" type="list" default="[maps.ascii_colors]">
+  List of `mapres` map objects applied when rendering text for the terminal (`origin` route). Defaults to ANSI color processing.
+</ParamField>
+
+<ParamField path="destination_maps" type="list" default="[maps.ascii_colors]">
+  Map list applied when rendering text for the HungerBridge console (`destination` route).
+</ParamField>
+
+<ParamField path="broadcast_maps" type="list" default="[maps.mc_colors]">
+  Map list applied when rendering text for in-game `tellraw` broadcasts. Defaults to Minecraft color code processing.
+</ParamField>
+
+<ParamField path="file_maps" type="list" default="[maps.strip_colors]">
+  Map list applied before writing text to the log file. Defaults to stripping all color/format tokens so the file contains clean plain text.
+</ParamField>
+
+<ParamField path="prefix_maps" type="list" default="[maps.ascii_colors, maps.time]">
+  Map list applied when rendering the timestamp and level prefix strings. Includes both ANSI color and time substitution.
+</ParamField>
+
+<ParamField path="info_prefix" type="str" default='<white>[%hh%:%mm%:%ss%] [INFO]: '>
+  Template string for the INFO-level prefix. `%hh%`, `%mm%`, and `%ss%` are substituted with the current time by the `maps.time` map resolver.
+</ParamField>
+
+<ParamField path="warn_prefix" type="str" default='<yellow>[%hh%:%mm%:%ss%] [WARN]: '>
+  Template string for the WARN-level prefix.
+</ParamField>
+
+<ParamField path="error_prefix" type="str" default='<red>[%hh%:%mm%:%ss%] [ERROR]: '>
+  Template string for the ERROR-level prefix.
+</ParamField>
+
+---
+
+## Shorthand Methods
+
+These are the primary methods for everyday use. Each one calls both `origin` (terminal print) and `filelog` (disk write) in a single call. They do **not** automatically call `destination` or `broadcast` — use the primitive routes directly for those.
+
+### `info()`
+
+```python
+router.info(text: str, extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Logs a message at INFO level. Applies `info_prefix` and renders with `origin_maps`.
+
+<ParamField path="text" type="str" required>
+  The message to log.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Additional map objects to append to the default map list for this call.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  If provided, replaces the default map list entirely for this call.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Extra keyword arguments passed through to the `MapResolver` for template variable substitution.
+</ParamField>
+
+**Returns** `str` — the fully rendered terminal string (prefix + message with ANSI codes applied).
+
+---
+
+### `warn()`
+
+```python
+router.warn(text: str, extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Logs a message at WARN level. Applies `warn_prefix` with a yellow color tag and renders with `origin_maps`.
+
+<ParamField path="text" type="str" required>
+  The message to log.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Additional map objects to append to the default map list.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces the default map list if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Extra keyword arguments for template substitution.
+</ParamField>
+
+**Returns** `str` — the fully rendered terminal string.
+
+---
+
+### `error()`
+
+```python
+router.error(text: str, extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Logs a message at ERROR level. Applies `error_prefix` with a red color tag and renders with `origin_maps`.
+
+<ParamField path="text" type="str" required>
+  The message to log.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Additional map objects to append to the default map list.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces the default map list if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Extra keyword arguments for template substitution.
+</ParamField>
+
+**Returns** `str` — the fully rendered terminal string.
+
+---
+
+## Primitive Routes
+
+Use these when you need fine-grained control over which destinations receive a message, or when combining routes manually.
+
+### `origin()`
+
+```python
+router.origin(text: str, level: str = "info", extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Renders and prints a message to the terminal (`stdout`) with the appropriate level prefix and ANSI color codes.
+
+<ParamField path="text" type="str" required>
+  The message body to render and print.
+</ParamField>
+
+<ParamField path="level" type="str" default="info">
+  Log level controlling which prefix is prepended. Must be `"info"`, `"warn"`, or `"error"`.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Extra map objects appended to the active map list for this call.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces `origin_maps` entirely if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Keyword arguments forwarded to the `MapResolver` for template substitution.
+</ParamField>
+
+**Returns** `str` — the full rendered string that was printed (prefix + message).
+
+**Raises** `InvalidLevelError` if `level` is not `"info"`, `"warn"`, or `"error"`.
+
+---
+
+### `destination()`
+
+```python
+router.destination(text: str, level: str = "info", extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Sends a log message to the HungerBridge console on every server in `Servers` that has a `.bridge` attribute. Uses `destination_maps` for rendering.
+
+<ParamField path="text" type="str" required>
+  The message to send.
+</ParamField>
+
+<ParamField path="level" type="str" default="info">
+  Log level forwarded to `BridgeClient.log(message, level)`. Must be `"info"`, `"warn"`, or `"error"`.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Extra map objects appended to `destination_maps`.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces `destination_maps` entirely if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Keyword arguments forwarded to the `MapResolver`.
+</ParamField>
+
+**Returns** `str` — the rendered message string that was sent.
+
+---
+
+### `broadcast()`
+
+```python
+router.broadcast(text: str, extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Sends a `tellraw`-based broadcast to every server in `Servers` that has a `.sendBroadcast` method. Uses `broadcast_maps` (Minecraft color codes by default) for rendering.
+
+<ParamField path="text" type="str" required>
+  The message to broadcast in-game.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Extra map objects appended to `broadcast_maps`.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces `broadcast_maps` entirely if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Keyword arguments forwarded to the `MapResolver`.
+</ParamField>
+
+**Returns** `str` — the rendered message string that was broadcast.
+
+---
+
+### `filelog()`
+
+```python
+router.filelog(text: str, level: str = "info", extra_maps=None, override_maps=None, **ctx) -> str
+```
+
+Writes a message to the rotating date-stamped log file using Python's `logging` module. Uses `file_maps` (strip colors by default) so the file contains clean plain text. The file is named `{name}_YYYY-MM-DD.log` and located in `log_path`.
+
+<ParamField path="text" type="str" required>
+  The message to write to the log file.
+</ParamField>
+
+<ParamField path="level" type="str" default="info">
+  Logging level. Must be `"info"`, `"warn"`, or `"error"`. Maps to `logger.info()`, `logger.warning()`, and `logger.error()` respectively.
+</ParamField>
+
+<ParamField path="extra_maps" type="list | None" default="None">
+  Extra map objects appended to `file_maps`.
+</ParamField>
+
+<ParamField path="override_maps" type="list | None" default="None">
+  Replaces `file_maps` entirely if provided.
+</ParamField>
+
+<ParamField path="**ctx" type="any">
+  Keyword arguments forwarded to the `MapResolver`.
+</ParamField>
+
+**Returns** `str` — the stripped/rendered string that was written to the file.
+
+---
+
+## Log File Format
+
+Log files use the Python `logging` formatter pattern:
+
+```
+[HH:MM:SS] [LEVEL] message text
+```
+
+Example file: `./logs/bot_2024-07-15.log`
+
+```
+[14:32:01] [INFO] Server is starting up
+[14:32:45] [WARNING] Memory usage above 80%
+[14:33:12] [ERROR] Connection to database lost
+```
+
+A new log file is created each day. The `log_path` directory is created automatically if it does not exist.

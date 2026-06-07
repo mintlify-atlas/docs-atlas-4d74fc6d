@@ -1,0 +1,390 @@
+---
+title: "Manage Pterodactyl Servers with GenericServer and MinecraftServer"
+sidebarTitle: "Servers"
+description: "GenericServer and MinecraftServer provide power control, resource monitoring, file management, backups, databases, and Minecraft-specific RCON features over the Pterodactyl Client API."
+---
+
+HungerLib provides two server classes that sit on top of a `Panel` connection. `GenericServer` covers every operation available through the Pterodactyl Client API — power actions, resource metrics, file management, backups, databases, startup variables, and schedules. `MinecraftServer` extends `GenericServer` and adds Minecraft-specific features (player queries, TPS monitoring, and console commands) by communicating with a running **HungerBridge** agent over a separate HTTP port.
+
+---
+
+## GenericServer
+
+`GenericServer` is HungerLib's universal Pterodactyl server wrapper. It delegates every API call to the `Panel` instance you pass in, so a single panel object can manage as many servers as you like.
+
+### Constructor
+
+```python
+from hungerlib import Panel, GenericServer
+
+panel = Panel(name="production", url="https://panel.example.com", api_key="ptlc_...")
+
+server = GenericServer(
+    name="lobby",
+    panel=panel,
+    server_id="1a2b3c4d",
+)
+```
+
+<ParamField path="name" type="str" required>
+  A human-readable label for this server. Available as `server.name` but not sent to the API.
+</ParamField>
+
+<ParamField path="panel" type="Panel" required>
+  An authenticated `Panel` instance. All API requests are routed through it.
+</ParamField>
+
+<ParamField path="server_id" type="str" required>
+  The Pterodactyl server identifier (the short UUID shown in the panel URL, e.g. `1a2b3c4d`).
+</ParamField>
+
+---
+
+### Status & Resources
+
+These methods retrieve live or cached resource data from the Pterodactyl API.
+
+#### `getStatus() -> str`
+
+Returns the server's current state string as reported by the panel — common values are `"running"`, `"offline"`, `"starting"`, and `"stopping"`.
+
+#### `isOnline() -> bool` / `isOffline() -> bool`
+
+Convenience wrappers around `getStatus()`. `isOnline()` returns `True` when the state is `"running"`; `isOffline()` returns `True` when the state is `"offline"`.
+
+#### `refresh() -> dict`
+
+Forces a fresh API fetch of resource metrics, updates the internal cache, and returns the raw resource dictionary. Call this before reading metrics if you need up-to-date values.
+
+#### `resources() -> dict`
+
+Returns the cached resource dictionary. If no data has been fetched yet, it calls `refresh()` automatically.
+
+#### Resource Getters
+
+All resource getters share the same caching layer. Pass `rounding` to control decimal precision and `gb=True` to convert byte values to gigabytes (default is megabytes).
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `getRAM` | `getRAM(rounding=2, gb=False)` | Current RAM usage as `float \| None` |
+| `getCPU` | `getCPU(rounding=2)` | Current CPU usage percentage as `float \| None` |
+| `getDisk` | `getDisk(rounding=2, gb=False)` | Current disk usage as `float \| None` |
+| `getNetworkIn` | `getNetworkIn(rounding=2, gb=False)` | Inbound network traffic as `float \| None` |
+| `getNetworkOut` | `getNetworkOut(rounding=2, gb=False)` | Outbound network traffic as `float \| None` |
+| `getUptime` | `getUptime(formatted=False)` | Uptime in seconds (`int`) or a pretty string like `"2h 14m"` |
+
+---
+
+### Power Actions
+
+Power methods send a signal to the Pterodactyl power endpoint and return a `(status_code, text)` tuple so you can inspect the panel's response.
+
+#### `powerAction(action: str) -> tuple`
+
+The underlying method for all power controls. Raises `ValueError` for any action outside the valid set.
+
+**Valid actions:** `"start"`, `"restart"`, `"stop"`, `"kill"`
+
+#### Shortcut Methods
+
+```python
+server.start()    # (204, '')
+server.restart()  # (204, '')
+server.stop()     # (204, '')
+server.kill()     # (204, '')
+```
+
+Each is a one-liner wrapper around `powerAction()` returning the same `(status_code, text)` tuple.
+
+<Warning>
+  `kill()` terminates the server process immediately without a graceful shutdown. Use `stop()` whenever possible to avoid data corruption.
+</Warning>
+
+---
+
+### File Management
+
+All file operations proxy through `panel.files` (`FileManagerAPI`). Paths are relative to the server's root directory.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `listFiles` | `listFiles(directory="/")` | List contents of a directory |
+| `uploadFile` | `uploadFile(directory, file_data)` | Upload a file via multipart form |
+| `downloadFile` | `downloadFile(path)` | Get a download URL for a file |
+| `deleteFiles` | `deleteFiles(root, files)` | Delete one or more files |
+| `renameFiles` | `renameFiles(root, files)` | Rename files within a directory |
+| `copyFiles` | `copyFiles(root, files)` | Copy files to a new location |
+| `moveFiles` | `moveFiles(root, files)` | Move files to a new location |
+| `createFolder` | `createFolder(directory, name)` | Create a new directory |
+| `compress` | `compress(root, files)` | Compress files into an archive |
+| `decompress` | `decompress(file_path)` | Decompress an archive in place |
+
+---
+
+### Backups
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `listBackups` | `listBackups()` | Return all backups for this server |
+| `createBackup` | `createBackup(name: str)` | Trigger a new backup with the given name |
+| `deleteBackup` | `deleteBackup(backup_id: int)` | Delete a backup by its ID |
+| `downloadBackup` | `downloadBackup(backup_id: int)` | Get a signed download URL for a backup |
+
+---
+
+### Databases
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `listDatabases` | `listDatabases()` | Return all databases attached to this server |
+| `createDatabase` | `createDatabase(name, remote="%", host=None)` | Create a new database; `remote` controls allowed host connections |
+| `rotateDatabasePassword` | `rotateDatabasePassword(db_id: str)` | Generate a new password for an existing database |
+| `deleteDatabase` | `deleteDatabase(db_id: str)` | Permanently delete a database |
+
+---
+
+### Startup Variables
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `getStartupVariables` | `getStartupVariables()` | Fetch all startup environment variables |
+| `updateStartupVariable` | `updateStartupVariable(key: str, value: str)` | Update the value of a named startup variable |
+
+---
+
+### Schedules
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `listSchedules` | `listSchedules()` | Return all schedules |
+| `createSchedule` | `createSchedule(payload)` | Create a new schedule from a payload dict |
+| `updateSchedule` | `updateSchedule(schedule_id, payload)` | Update an existing schedule |
+| `deleteSchedule` | `deleteSchedule(schedule_id)` | Delete a schedule |
+| `runSchedule` | `runSchedule(schedule_id)` | Trigger a schedule to execute immediately |
+| `enableSchedule` | `enableSchedule(schedule_id)` | Set `is_active = True` on a schedule |
+| `disableSchedule` | `disableSchedule(schedule_id)` | Set `is_active = False` on a schedule |
+| `getSchedule` | `getSchedule(schedule_id: int) -> dict \| None` | Find a schedule by integer ID and return a detailed dict, or `None` if not found |
+
+`getSchedule()` returns a dict with the following keys when found:
+
+```python
+{
+    "id": 42,
+    "name": "nightly-restart",
+    "description": "...",
+    "is_active": True,
+    "cron": {...},
+    "minute": "0",
+    "hour": "4",
+    "day_of_month": "*",
+    "month": "*",
+    "day_of_week": "*",
+    "next_run_at": "2024-01-15T04:00:00Z",
+    "last_run_at": "2024-01-14T04:00:00Z",
+    "only_when_online": False,
+    "is_processing": False,
+    "created_at": "...",
+    "updated_at": "...",
+    "tasks": [...]
+}
+```
+
+---
+
+## MinecraftServer
+
+`MinecraftServer` inherits every method from `GenericServer` and adds Minecraft-specific capabilities powered by **HungerBridge** — a lightweight HTTP agent that runs inside the Minecraft server process. It automatically constructs and holds a `BridgeClient` instance you never need to manage directly.
+
+<Note>
+  `MinecraftServer` requires a running HungerBridge instance reachable at `http://<server_domain>:<bridge_port>`. Without it, `getPlayers()`, `getTPS()`, `sendConsoleCommand()`, and `sendBroadcast()` will raise `HungerBridgeError`.
+</Note>
+
+### Constructor
+
+```python
+from hungerlib import Panel, MinecraftServer
+
+panel = Panel(name="production", url="https://panel.example.com", api_key="ptlc_...")
+
+mc = MinecraftServer(
+    name="survival",
+    panel=panel,
+    server_id="1a2b3c4d",
+    server_domain="mc.example.com",
+    server_port=25565,
+    bridge_port=8080,
+    bridge_token="my-bridge-secret",
+)
+```
+
+<ParamField path="name" type="str" required>
+  Human-readable label for this server.
+</ParamField>
+
+<ParamField path="panel" type="Panel" required>
+  An authenticated `Panel` instance (same as `GenericServer`).
+</ParamField>
+
+<ParamField path="server_id" type="str" required>
+  Pterodactyl short UUID for this server.
+</ParamField>
+
+<ParamField path="server_domain" type="str" required>
+  The hostname or IP address where both the Minecraft server and HungerBridge are accessible.
+</ParamField>
+
+<ParamField path="server_port" type="int" required>
+  The Minecraft server's game port (default Minecraft port is `25565`).
+</ParamField>
+
+<ParamField path="bridge_port" type="int" required>
+  The port HungerBridge is listening on. This is separate from the game port.
+</ParamField>
+
+<ParamField path="bridge_token" type="str" required>
+  The authentication token for HungerBridge, sent as `X-Auth-Key` on every bridge request.
+</ParamField>
+
+---
+
+### `getPlayers(mode='count') -> int | list | None`
+
+Queries HungerBridge for current player data.
+
+- `mode='count'` — returns the number of players currently online as an `int`
+- `mode='list'` — returns a `list` of online player name strings
+
+Raises `InvalidModeError` for any other value.
+
+```python
+print(mc.getPlayers())          # 7
+print(mc.getPlayers('list'))    # ['Alice', 'Bob', 'Charlie']
+```
+
+### `getTPS(mode='current', rounding=3) -> float | None`
+
+Fetches TPS (ticks per second) from HungerBridge and rounds to `rounding` decimal places.
+
+| `mode` | Description |
+|--------|-------------|
+| `'current'` | EMA20 — the most recent TPS reading |
+| `'1m'` | EMA1200 — one-minute rolling average |
+| `'5m'` | EMA6000 — five-minute rolling average |
+| `'tick_time'` | Average server tick time in milliseconds |
+
+Returns `None` if the bridge returns no data or an invalid mode is given.
+
+```python
+print(mc.getTPS())              # 19.998
+print(mc.getTPS('1m'))          # 19.95
+print(mc.getTPS('tick_time'))   # 50.1
+```
+
+### `sendConsoleCommand(command, show_console=False, silent=False, normalize=True)`
+
+Executes a server console command via HungerBridge and returns the command output.
+
+<ParamField path="command" type="str" required>
+  The console command string to execute (without a leading `/`).
+</ParamField>
+
+<ParamField path="show_console" type="bool">
+  When `True`, the output is echoed to the server console in addition to being returned.
+</ParamField>
+
+<ParamField path="silent" type="bool">
+  When `True`, suppresses console output on the server side.
+</ParamField>
+
+<ParamField path="normalize" type="bool">
+  When `True` (default), joins the `output` list from the bridge response into a single newline-delimited string. Set to `False` to receive the raw response dict.
+</ParamField>
+
+```python
+output = mc.sendConsoleCommand("list")
+print(output)
+# There are 3 of a max of 20 players online: Alice, Bob, Charlie
+```
+
+### `sendBroadcast(message: str)`
+
+Sends a `tellraw @a` command to broadcast a plain-text message to all online players. Double-quotes in the message are escaped automatically.
+
+```python
+mc.sendBroadcast("Server restarting in 5 minutes!")
+```
+
+---
+
+## Practical Examples
+
+### GenericServer — restart and back up
+
+```python
+import time
+from hungerlib import Panel, GenericServer, waitForOnline
+
+panel = Panel(
+    name="production",
+    url="https://panel.example.com",
+    api_key="ptlc_yourKeyHere",
+)
+
+server = GenericServer(
+    name="lobby",
+    panel=panel,
+    server_id="1a2b3c4d",
+)
+
+# Read current resource usage
+server.refresh()
+print(f"RAM:  {server.getRAM()} MB")
+print(f"CPU:  {server.getCPU()} %")
+print(f"Disk: {server.getDisk()} MB")
+print(f"Up:   {server.getUptime(formatted=True)}")
+
+# Restart and wait for the server to come back online
+server.restart()
+print("Waiting for server to come back online...")
+waitForOnline(server)
+print("Server is back online!")
+
+# Create a post-restart backup
+server.createBackup("post-restart-backup")
+print("Backup created.")
+```
+
+### MinecraftServer — broadcast and TPS check
+
+```python
+from hungerlib import Panel, MinecraftServer
+
+panel = Panel(
+    name="production",
+    url="https://panel.example.com",
+    api_key="ptlc_yourKeyHere",
+)
+
+mc = MinecraftServer(
+    name="survival",
+    panel=panel,
+    server_id="1a2b3c4d",
+    server_domain="mc.example.com",
+    server_port=25565,
+    bridge_port=8080,
+    bridge_token="my-bridge-secret",
+)
+
+# Broadcast a message to all players
+mc.sendBroadcast("Maintenance window starts in 10 minutes.")
+
+# Check server health
+tps = mc.getTPS()
+players = mc.getPlayers('list')
+
+print(f"TPS: {tps}")            # TPS: 19.998
+print(f"Online: {players}")     # Online: ['Alice', 'Bob']
+
+if tps < 18.0:
+    print("Warning: TPS is degraded!")
+```

@@ -1,0 +1,117 @@
+---
+title: "Load YAML Configuration with loadConfig"
+sidebarTitle: "Configuration"
+description: "HungerLib's loadConfig function maps YAML files into Python dataclasses with automatic fallback support, dotted key paths, and raw namespace access."
+---
+
+`loadConfig` is HungerLib's configuration loader. It reads a YAML file from disk, resolves each value using a dotted key path, and returns a fully populated Python dataclass — without you ever writing a YAML parser, key-lookup loop, or file-creation guard. The loader also handles missing config files (creating them automatically), supports fallback values for optional keys, and attaches a `raw` namespace for direct attribute-style YAML access. The result is a single `cfg = loadConfig(Config)` call that is safe to run on first boot and gives you a typed object you can validate immediately.
+
+## Defining a Config Schema
+
+A HungerLib config schema is a plain Python `dataclass`. Each field's **default value** is a dotted YAML key path that `loadConfig` resolves at runtime. Three special class attributes control the loader's behaviour:
+
+```python
+from dataclasses import dataclass
+from hungerlib import loadConfig
+
+@dataclass
+class Config:
+    __mode__ = "config"                          # required — activates dotted-path resolution
+    __user_config_path__ = "config/config.yaml"  # path to the runtime YAML file
+
+    panel_url: str = "panel.url"
+    panel_key: str = "panel.api_key"
+    server_id: str = "server.id"
+```
+
+Each field name (e.g. `panel_url`) becomes an attribute on the returned object. Each default string (e.g. `"panel.url"`) is the dotted path `loadConfig` will look up in the YAML file.
+
+## The Matching YAML File
+
+Create `config/config.yaml` alongside your script (or wherever `__user_config_path__` points):
+
+```yaml
+panel:
+  url: https://panel.example.com
+  api_key: ptlc_yourKey
+
+server:
+  id: abc123
+```
+
+`loadConfig` resolves `"panel.url"` → `panel` → `url` using recursive key traversal, so nesting depth is unlimited.
+
+## Loading and Using the Config
+
+```python
+cfg = loadConfig(Config)
+
+print(cfg.panel_url)   # "https://panel.example.com"
+print(cfg.panel_key)   # "ptlc_yourKey"
+print(cfg.server_id)   # "abc123"
+```
+
+Pass the returned object directly to your `Panel` and `GenericServer` constructors:
+
+```python
+from hungerlib import Panel, GenericServer
+
+panel  = Panel(name="my-panel", url=cfg.panel_url, api_key=cfg.panel_key)
+server = GenericServer(name="lobby", panel=panel, server_id=cfg.server_id)
+```
+
+## Raw YAML Access with `cfg.raw`
+
+Every config object returned by `loadConfig` has a `.raw` attribute — a `RawNamespace` instance that gives you **attribute-style access to the original unprocessed YAML values** using the same field names you defined in the schema. This is useful when you want the raw string exactly as it appeared in the file, before any type conversion.
+
+```python
+print(cfg.raw.panel_key)  # reads the YAML path "panel.api_key" and returns the raw value
+print(cfg.raw.server_id)  # reads the YAML path "server.id"
+```
+
+`RawNamespace` looks up the YAML path stored in the dataclass field's default (e.g. `"panel.api_key"`) and performs a fresh deep-get against the raw parsed dictionary. It returns `None` for any key that is absent from the YAML file.
+
+## Fallback Values
+
+For optional configuration keys you can define a `fallbacks` object in the **same module** as your schema. `loadConfig` automatically imports the module and reads `fallbacks.<field_name>` whenever a YAML key is missing.
+
+```python
+from dataclasses import dataclass
+from hungerlib import loadConfig
+
+@dataclass
+class Config:
+    __mode__ = "config"
+    __user_config_path__ = "config/config.yaml"
+
+    panel_url:   str = "panel.url"
+    panel_key:   str = "panel.api_key"
+    server_id:   str = "server.id"
+    restart_msg: str = "broadcast.restart_message"
+
+class fallbacks:
+    restart_msg = "Server is restarting. Please reconnect shortly."
+```
+
+If `broadcast.restart_message` is absent from the YAML file, `cfg.restart_msg` will be `"Server is restarting. Please reconnect shortly."` instead of `None`. The `fallbacks` object is also attached directly to the config instance at `cfg.fallbacks`.
+
+## Special Class Attributes
+
+| Attribute | Required | Description |
+|---|---|---|
+| `__mode__` | **Yes** | Must be set to `"config"` to enable dotted-path resolution. Without it, field defaults are treated as literal values. |
+| `__user_config_path__` | No | Path to the runtime YAML file. Relative paths are resolved from the current working directory. Defaults to `"config/config.yaml"` if omitted. |
+| `__default_config_path__` | No | Path to a **packaged default** YAML file, relative to the package root. When the runtime config does not exist yet and a default is provided, `loadConfig` copies it to `__user_config_path__` before loading. |
+
+## Automatic File Creation
+
+`loadConfig` ensures the config directory and file exist before attempting to read them. The exact behaviour depends on whether a default config is available:
+
+- **`__default_config_path__` is set and the file exists**: the default is copied to `__user_config_path__` on first run, giving users a pre-populated starting point.
+- **`__default_config_path__` is not set** (or the default file cannot be found): an empty file is created at `__user_config_path__` so the load does not raise a `FileNotFoundError`.
+
+In both cases, any missing YAML keys fall back to the values defined in your `fallbacks` class (or `None` if no fallback is provided).
+
+<Note>
+  Combine `loadConfig` with [`Validator`](/guides/validator) to enforce required fields and catch type mismatches at startup. Define a `rules` object on your config class with field names set to `"required"`, `"recommended"`, or `"optional"`, then call `validator.run(cfg)` before your automation logic begins. A `FatalError` is raised immediately if any required key is missing or a type mismatch is detected — preventing subtle runtime failures deep inside your script.
+</Note>

@@ -1,0 +1,143 @@
+---
+title: "Connect to a Pterodactyl Panel with Panel"
+sidebarTitle: "Panel"
+description: "The Panel class is HungerLib's authenticated HTTP client for the Pterodactyl Client API — covering health checks, files, schedules, databases, backups, and startup variables."
+---
+
+`Panel` is the central connection object in HungerLib. It wraps the Pterodactyl Client API with an authenticated HTTP client and exposes every sub-module — schedules, files, backups, databases, startup variables, and commands — as attributes you can hand off to a server object. Every `GenericServer` and `MinecraftServer` instance holds a `Panel` reference and uses it to make all panel requests on your behalf.
+
+## Constructor
+
+```python
+from hungerlib import Panel
+
+panel = Panel(
+    name="production",
+    url="https://panel.example.com",
+    api_key="ptlc_yourKeyHere",
+)
+```
+
+<ParamField path="name" type="str" required>
+  A human-readable label for this panel connection. Used in log output and `__str__` representations — it has no effect on the API calls themselves.
+</ParamField>
+
+<ParamField path="url" type="str" required>
+  The base URL of your Pterodactyl panel (e.g. `https://panel.example.com`). Any trailing slash is stripped automatically so you never need to worry about double-slashes in constructed paths.
+</ParamField>
+
+<ParamField path="api_key" type="str" required>
+  A Pterodactyl **Client** API key (prefix `ptlc_`). Generate one from your account settings page inside the panel. Application keys are not accepted.
+</ParamField>
+
+<Note>
+  Your API key must be a **Client API key** (prefix `ptlc_`), not an Application API key. You can create one under **Account → API Credentials** in the Pterodactyl panel UI.
+</Note>
+
+## Health Methods
+
+Before handing a `Panel` to a server object it is good practice to confirm that the panel is reachable and that your key is valid.
+
+### `ping() -> bool`
+
+Sends a `GET /api/client` request and returns `True` when the panel responds with HTTP 200. Returns `False` on any network error or non-200 status, making it safe to call even when connectivity is uncertain.
+
+```python
+if not panel.ping():
+    raise RuntimeError("Panel is unreachable")
+```
+
+### `validateAPI() -> bool`
+
+Sends a `GET /api/client/account` request and returns `True` when the panel accepts the key (HTTP 200). A `False` result means the key is invalid, revoked, or the account has been suspended.
+
+```python
+if not panel.validateAPI():
+    raise RuntimeError("Invalid API key")
+```
+
+## HTTP Primitives
+
+All requests automatically attach the `Authorization: Bearer <api_key>`, `Accept: application/json`, and `Content-Type: application/json` headers. You rarely need to call these directly — server methods handle routing — but they are available for custom requests.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `get` | `get(path, timeout=5)` | Performs a `GET` request against `url + path`. |
+| `post` | `post(path, json=None, timeout=5)` | Performs a `POST` request with an optional JSON body. |
+| `delete` | `delete(path, timeout=5)` | Performs a `DELETE` request. |
+| `patch` | `patch(path, json=None, timeout=5)` | Performs a `PATCH` request with an optional JSON body. |
+
+### `_raw_upload(url, file_data)`
+
+A special-case method for multipart file uploads. Unlike the standard methods it does **not** send a `Content-Type: application/json` header; instead it lets `requests` set the correct `multipart/form-data` boundary. Used internally by `FileManagerAPI` when you call `uploadFile()` on a server.
+
+## API Sub-Modules
+
+`Panel` instantiates six API sub-modules during `__init__` and exposes them as attributes. You do not normally call these directly — `GenericServer` and `MinecraftServer` proxy every operation through them.
+
+<CardGroup cols={2}>
+  <Card title=".schedules" icon="calendar">
+    `ScheduleAPI` — list, create, update, delete, and trigger scheduled tasks.
+  </Card>
+  <Card title=".files" icon="folder">
+    `FileManagerAPI` — list, upload, download, delete, rename, copy, move, compress, and decompress files.
+  </Card>
+  <Card title=".backups" icon="database">
+    `BackupsAPI` — list, create, delete, and download server backups.
+  </Card>
+  <Card title=".databases" icon="server">
+    `DatabasesAPI` — list, create, rotate passwords, and delete databases.
+  </Card>
+  <Card title=".startup" icon="play">
+    `StartupAPI` — read and update startup environment variables.
+  </Card>
+  <Card title=".commands" icon="terminal">
+    `CommandAPI` — send console commands to a server.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Pass your `Panel` instance directly to `GenericServer` or `MinecraftServer` — you never need to call the sub-modules manually in typical usage. The server classes expose every file, backup, database, and schedule operation as top-level methods that proxy through the panel automatically.
+</Tip>
+
+## Full Connectivity Example
+
+<Steps>
+  <Step title="Import and instantiate Panel">
+    ```python
+    from hungerlib import Panel
+
+    panel = Panel(
+        name="production",
+        url="https://panel.example.com",
+        api_key="ptlc_yourKeyHere",
+    )
+    ```
+  </Step>
+
+  <Step title="Check panel health">
+    ```python
+    if not panel.ping():
+        raise RuntimeError("Panel is unreachable")
+    if not panel.validateAPI():
+        raise RuntimeError("Invalid API key")
+
+    print("Connected to", panel.name)
+    # Connected to production
+    ```
+  </Step>
+
+  <Step title="Hand it to a server object">
+    ```python
+    from hungerlib import GenericServer
+
+    server = GenericServer(
+        name="lobby",
+        panel=panel,
+        server_id="1a2b3c4d",
+    )
+
+    print(server.getStatus())  # running
+    ```
+  </Step>
+</Steps>
